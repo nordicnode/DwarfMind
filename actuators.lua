@@ -227,7 +227,7 @@ function mark_item_for_trade(item, depot)
         return true
     end
     return safe_act('mark_item_for_trade', function()
-        dfhack.items.markForTrade(item, depot)
+        item.flags2.for_trade = true
     end)
 end
 

@@ -552,13 +552,15 @@ function check_bedroom_status()
     return safe('check_bedroom_status', { homeless=0, unowned_bedrooms=0, unbuilt_beds=0, queued_beds=0 }, function()
         local citizens = dfhack.units.getCitizens(true) or {}
         local owned_beds = {}
-        for _, bld in ipairs(df.global.world.buildings.other.BED) do
-            local owner_id = bld.owner_id
-            if owner_id == -1 and bld.owner then
-                owner_id = bld.owner.id
-            end
-            if owner_id and owner_id ~= -1 then
-                owned_beds[owner_id] = true
+        for _, bld in ipairs(df.global.world.buildings.all) do
+            if bld:getType() == df.building_type.Bed then
+                local owner_id = bld.owner_id
+                if owner_id == -1 and bld.owner then
+                    owner_id = bld.owner.id
+                end
+                if owner_id and owner_id ~= -1 then
+                    owned_beds[owner_id] = true
+                end
             end
         end
 
@@ -570,9 +572,11 @@ function check_bedroom_status()
         end
 
         local unowned_bedrooms = 0
-        for _, building in ipairs(df.global.world.buildings.other.BED) do
-            if building.is_room and not building.owner then
-                unowned_bedrooms = unowned_bedrooms + 1
+        for _, building in ipairs(df.global.world.buildings.all) do
+            if building:getType() == df.building_type.Bed then
+                if building.room and building.room.extents ~= nil and building.room.width > 0 and building.owner_id == -1 then
+                    unowned_bedrooms = unowned_bedrooms + 1
+                end
             end
         end
 
@@ -602,7 +606,7 @@ end
 -- Returns the first active TradeDepot building and an ok flag.
 function get_active_depot()
     return safe('get_active_depot', nil, function()
-        for _, bld in ipairs(df.global.world.buildings.other.TRADE_DEPOT) do
+        for _, bld in ipairs(df.global.world.buildings.all) do
             if bld:getType() == df.building_type.TradeDepot and bld.flags.exists then
                 return bld
             end
@@ -635,8 +639,8 @@ end
 function get_doors()
     return safe('get_doors', {}, function()
         local result = {}
-        for _, door in ipairs(df.global.world.buildings.other.DOOR) do
-            if door.flags.exists then
+        for _, door in ipairs(df.global.world.buildings.all) do
+            if door:getType() == df.building_type.Door and door.flags.exists then
                 table.insert(result, door)
             end
         end
@@ -719,8 +723,8 @@ function check_hospital_supplies()
             for _, it in ipairs(other.POWDER_MISC) do
                 if is_valid(it) then
                     local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
-                    if mat then
-                        local mid = mat.id
+                    if mat and mat.inorganic then
+                        local mid = mat.inorganic.id
                         if mid == "GYPSUM" or mid == "ALABASTER" or mid == "SELENITE" or mid == "SATINSPAR" then
                             plaster = plaster + (it.stack_size > 0 and it.stack_size or 1)
                         end
@@ -1253,8 +1257,17 @@ function is_plant_cooking_banned(plant_raw_id)
         local matinfo = dfhack.matinfo.find('PLANT_MAT:' .. plant_raw_id .. ':STRUCTURAL')
         if not matinfo then return false end
         
-        local index = dfhack.kitchen.findExclusion({Cook=true}, df.item_type.PLANT, -1, matinfo.type, matinfo.index)
-        return index ~= -1
+        local kitchen = df.global.plotinfo.kitchen
+        if not kitchen then return false end
+        for i = 0, #kitchen.excl_item_type - 1 do
+            if kitchen.excl_item_type[i] == df.item_type.PLANT 
+               and kitchen.excl_mat_type[i] == matinfo.type 
+               and kitchen.excl_mat_index[i] == matinfo.index
+               and kitchen.excl_type[i] == 0 then -- 0 is Cook
+                return true
+            end
+        end
+        return false
     end)
 end
 
