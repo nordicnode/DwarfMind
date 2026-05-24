@@ -444,6 +444,67 @@ function mark_unit_for_gelding(unit, geld)
     end)
 end
 
+-- ─── Thought injection ────────────────────────────────────────────────────
+-- Injects a synthetic thought directly into the unit's personality thought
+-- vector (unit.status.current_soul.personality.thoughts).
+--
+-- There is no DFHack helper for this — we write the unit_thought struct
+-- directly.  Field layout verified against df-structures df.unit.xml:
+--   unit_thought.type      (enum unit_thought_type)
+--   unit_thought.subtype   (int16_t; -1 = no subtype)
+--   unit_thought.age       (int32_t; ticks since thought was formed; 0 = brand new)
+--   unit_thought.flags     (uint32_t bitfield; 0 = no special flags)
+--
+-- NOTE: thoughts is a 0-indexed C++ stl-vector.  :insert('#', obj) appends
+-- to the end, which is safe — DF processes the full vector each mood tick.
+--
+-- Parameters:
+--   unit         (df.unit)              — target unit; must not be nil
+--   thought_type (df.unit_thought_type) — enum value, e.g. df.unit_thought_type.ATE_FINE_MEAL
+--
+-- Returns true on success (or in dry_run mode), false on any failure.
+function add_thought(unit, thought_type)
+    if not unit then
+        log.warn('add_thought called with nil unit')
+        return false
+    end
+    if dry_run then
+        log.info(string.format('DRY RUN: would inject thought %s into %s',
+            tostring(df.unit_thought_type[thought_type]),
+            dfhack.units.getReadableName(unit)))
+        return true
+    end
+    return safe_act('add_thought', function()
+        -- Deep nil-guard: soul → personality → thoughts  (per RULE C)
+        local soul = unit.status and unit.status.current_soul
+        if not soul then
+            log.warn(string.format('add_thought: unit #%d has no current_soul', unit.id))
+            return false
+        end
+        local personality = soul.personality
+        if not personality then
+            log.warn(string.format('add_thought: unit #%d soul has no personality', unit.id))
+            return false
+        end
+        local thoughts = personality.thoughts
+        if not thoughts then
+            log.warn(string.format('add_thought: unit #%d personality has no thoughts vector', unit.id))
+            return false
+        end
+
+        local t = df.unit_thought:new()
+        t.type    = thought_type
+        t.subtype = -1   -- no item/creature subtype
+        t.age     = 0    -- brand-new thought; DF will age it normally
+        t.flags   = 0    -- no special flags
+
+        thoughts:insert('#', t)
+
+        log.info(string.format('add_thought: injected %s into %s',
+            tostring(df.unit_thought_type[thought_type]),
+            dfhack.units.getReadableName(unit)))
+        return true
+    end)
+end
+
 return _ENV
-
-
