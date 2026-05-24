@@ -15,6 +15,21 @@
 --   [C] Every nested pointer traversal has nil guards.
 --   [D] reset() clears all cross-tick cursors and state.
 --   [E] Large scans use SCAN_WINDOW-sized round-robin windows.
+--
+-- CAT-2 FIX: Tile block is fetched exactly ONCE per block in scan_terrain_tick()
+--   and passed into cache_tile_with_block(), eliminating the previous
+--   512,000 pcalls-per-tick bottleneck (one pcall per local tile).
+--
+-- CAT-3 FIX (open_cells): Removed the open_cells accumulation table entirely.
+--   It was populated by the scanner but never consumed by generate_blueprints(),
+--   creating an unbounded memory leak across thousands of frames.
+--
+-- CAT-3 FIX (area_is_viable): Added is_diggable_stone(tt) check so cavern voids,
+--   open air, magma channels, and underground lakes correctly fail viability.
+--
+-- CAT-3 FIX (place_furniture_tick): Processes up to PLACE_BATCH_SIZE items per
+--   pass instead of 1, reducing workshop-block furniture pipeline from ~18 dwarf
+--   days down to ~4 dwarf days.
 -- =============================================================================
 local _ENV = mkmodule('dwarfmind/build_layer')
 
@@ -29,14 +44,15 @@ local log       = logger.for_module('build_layer')
 local SCAN_WINDOW       = 2000   -- tile-blocks processed per tick in round-robin
 local DIG_COOLDOWN      = 4800   -- ~40 dwarf-days between dig passes
 local PLACE_COOLDOWN    = 2400   -- ~20 dwarf-days between furniture placement passes
+local PLACE_BATCH_SIZE  = 5      -- CAT-3 FIX: process up to 5 furniture items per pass
 local MAX_PENDING_DIGS  = 64     -- cap pending dig cells per blueprint pass
 local MAX_ROOMS_PER_Z   = 4      -- residential nodes per z-level
 
 -- Blueprint template dimensions
-local ROOM_SIZE         = 3      -- 3×3 residential node
-local WORKSHOP_SIZE     = 11     -- 11×11 workshop block
-local STOCKPILE_SIZE    = 7      -- 7×7 general stockpile
-local ADMIN_SIZE        = 5      -- 5×5 admin/meeting hall
+local ROOM_SIZE         = 3      -- 3x3 residential node
+local WORKSHOP_SIZE     = 11     -- 11x11 workshop block
+local STOCKPILE_SIZE    = 7      -- 7x7 general stockpile
+local ADMIN_SIZE        = 5      -- 5x5 admin/meeting hall
 
 -- ---------------------------------------------------------------------------
 -- Module-local mutable state  (cleared in reset())
@@ -46,7 +62,7 @@ local scan_cursor_y     = 0
 local scan_cursor_z     = 0
 local scan_wrap_count   = 0       -- incremented each full sweep completion
 local terrain_cache     = {}      -- [z][x][y] = tiletype_id  (populated by scanner)
-local open_cells        = {}      -- list of {x,y,z} viable dig targets
+-- NOTE: open_cells removed (CAT-3 FIX — was an unbounded memory leak).
 local blueprints        = {}      -- list of blueprint descriptors
 local pending_digs      = {}      -- list of {x,y,z} awaiting designation write
 local furniture_queue   = {}      -- list of {type, x, y, z}
@@ -88,9 +104,14 @@ end
 -- LAYER 1 – TERRAIN SCANNER  (segmented round-robin)
 -- ---------------------------------------------------------------------------
 -- scan_terrain_tick() advances the round-robin cursor by up to SCAN_WINDOW
--- tile-block positions each call.  It accumulates viable open_cells.
--- When the cursor wraps back to (0,0,0) a full sweep is complete and
--- blueprint generation is triggered.
+-- tile-block positions each call.  When the cursor wraps back to (0,0,0)
+-- a full sweep is complete and blueprint generation is triggered.
+--
+-- CAT-2 FIX: The tile block is fetched ONCE per block-level loop iteration
+-- and passed directly into cache_tile_with_block().  The previous implementation
+-- called dfhack.maps.getTileBlock() inside cache_tile() for every individual
+-- local tile, producing 256 pcalls per block and 512,000 pcalls per SCAN_WINDOW
+-- tick — causing severe FPS drops on larger fortresses.
 
 local function get_map_dims()
     -- dfhack.maps.getTileSize() returns (x, y, z) in regions (16-tile blocks).
@@ -101,9 +122,8 @@ local function get_map_dims()
     return x, y, z
 end
 
-local function cache_tile(bx, by, bz, lx, ly)
-    local ok, block = pcall(dfhack.maps.getTileBlock, bx, by, bz)
-    if not ok or not block then return end
+-- CAT-2 FIX: Accepts a pre-fetched block reference; no getTileBlock() call inside.
+local function cache_tile_with_block(block, bx, by, bz, lx, ly)
     local tt = block.tiletype
     if not tt then return end
     local gx = bx * 16 + lx
@@ -113,16 +133,7 @@ local function cache_tile(bx, by, bz, lx, ly)
     if not terrain_cache[bz] then terrain_cache[bz] = {} end
     if not terrain_cache[bz][gx] then terrain_cache[bz][gx] = {} end
     terrain_cache[bz][gx][gy] = tiletype
-    -- Classify
-    if is_diggable_stone(tiletype) then
-        -- Check designation isn't already set
-        local dblock_ok, desig = pcall(function()
-            return block.designation[lx][ly]
-        end)
-        if dblock_ok and desig and not already_designated(desig) then
-            open_cells[#open_cells + 1] = {x=gx, y=gy, z=bz}
-        end
-    end
+    -- open_cells accumulation intentionally removed (CAT-3 FIX)
 end
 
 function scan_terrain_tick()
@@ -134,10 +145,13 @@ function scan_terrain_tick()
     local cx, cy, cz = scan_cursor_x, scan_cursor_y, scan_cursor_z
 
     while steps < SCAN_WINDOW do
-        -- Scan all 16×16 local tiles within current block
-        for lx = 0, 15 do
-            for ly = 0, 15 do
-                cache_tile(cx, cy, cz, lx, ly)
+        -- CAT-2 FIX: Fetch block once here, then pass reference to the per-tile helper.
+        local ok, block = pcall(dfhack.maps.getTileBlock, cx, cy, cz)
+        if ok and block then
+            for lx = 0, 15 do
+                for ly = 0, 15 do
+                    cache_tile_with_block(block, cx, cy, cz, lx, ly)
+                end
             end
         end
         steps = steps + 1
@@ -169,12 +183,17 @@ end
 -- ---------------------------------------------------------------------------
 -- LAYER 2 – BLUEPRINT GENERATOR
 -- ---------------------------------------------------------------------------
--- generate_blueprints() reads open_cells (populated by scanner) and constructs
--- layout matrices for residential nodes, workshop blocks, stockpiles, and admin
--- offices.  It respects aquifer flags and cavern proximity guards.
+-- generate_blueprints() constructs layout matrices for residential nodes,
+-- workshop blocks, stockpiles, and admin offices, anchored on the embark
+-- origin.  It rejects aquifer tiles and non-diggable cells.
 
 -- Returns true if a rectangular area [x1..x2][y1..y2] at z has all cells
--- present in terrain_cache as stone-wall or already-open-floor.
+-- present in terrain_cache as diggable stone walls (not open air, not void).
+--
+-- CAT-3 FIX: Added is_diggable_stone(tt) check.  The previous implementation
+-- only verified that a cache entry existed, which allowed cavern voids, open
+-- space, magma channels, and flooded tiles to pass viability (any scanned tile
+-- type was accepted as long as it appeared in terrain_cache).
 local function area_is_viable(x1, y1, x2, y2, z)
     if not terrain_cache[z] then return false end
     for x = x1, x2 do
@@ -182,6 +201,8 @@ local function area_is_viable(x1, y1, x2, y2, z)
         for y = y1, y2 do
             local tt = terrain_cache[z][x][y]
             if not tt then return false end
+            -- CAT-3 FIX: require solid diggable wall, not just any cached tile
+            if not is_diggable_stone(tt) then return false end
             -- Reject aquifer tiles
             local ok, block = pcall(dfhack.maps.getTileBlock,
                 math.floor(x/16), math.floor(y/16), z)
@@ -257,7 +278,7 @@ function generate_blueprints()
     local cx = origin.x
     local cy = origin.y
 
-    -- 1. Workshop block (11×11) centred under embark
+    -- 1. Workshop block (11x11) centred under embark
     local wx = cx - math.floor(WORKSHOP_SIZE / 2)
     local wy = cy - math.floor(WORKSHOP_SIZE / 2)
     local ws = make_blueprint('workshop_block', wx, wy, target_z,
@@ -267,7 +288,7 @@ function generate_blueprints()
         log.info(('Blueprint: workshop_block @(%d,%d,%d)'):format(wx, wy, target_z))
     end
 
-    -- 2. Residential nodes (3×3) arranged in a ring around workshop
+    -- 2. Residential nodes (3x3) arranged in a ring around workshop
     local offsets = {
         {dx=-6, dy=-6}, {dx= 6, dy=-6},
         {dx=-6, dy= 6}, {dx= 6, dy= 6},
@@ -283,7 +304,7 @@ function generate_blueprints()
         end
     end
 
-    -- 3. Stockpile (7×7) east of workshop
+    -- 3. Stockpile (7x7) east of workshop
     local spx = cx + WORKSHOP_SIZE
     local spy = cy - math.floor(STOCKPILE_SIZE / 2)
     local sp = make_blueprint('stockpile', spx, spy, target_z,
@@ -293,7 +314,7 @@ function generate_blueprints()
         log.info(('Blueprint: stockpile @(%d,%d,%d)'):format(spx, spy, target_z))
     end
 
-    -- 4. Admin / meeting hall (5×5) north of workshop
+    -- 4. Admin / meeting hall (5x5) north of workshop
     local ax = cx - math.floor(ADMIN_SIZE / 2)
     local ay = cy - WORKSHOP_SIZE - ADMIN_SIZE
     local ad = make_blueprint('admin', ax, ay, target_z,
@@ -468,6 +489,11 @@ function queue_furniture(bp)
         #flist, bp.kind))
 end
 
+-- CAT-3 FIX: Process up to PLACE_BATCH_SIZE items per pass.
+-- The previous implementation popped exactly 1 item per 2,400-tick cooldown.
+-- With 9 workshop items queued, that took ~21,600 ticks (~18 dwarf days) to
+-- drain the initial workshop block.  Batching 5 items per pass cuts this to
+-- ~4 dwarf days.
 function place_furniture_tick()
     if not sensors.is_fort_loaded() then return end
     local now = sensors.current_tick()
@@ -475,18 +501,22 @@ function place_furniture_tick()
     if #furniture_queue == 0 then return end
     if not actuators.can_queue_order() then return end
 
-    local item = table.remove(furniture_queue, 1)
-    if actuators.is_dry_run() then
-        log.info(('DRY-RUN place %s @(%d,%d,%d)'):format(
-            item.role, item.x, item.y, item.z))
-        last_place_tick = now
-        return
+    local placed_this_pass = 0
+    while placed_this_pass < PLACE_BATCH_SIZE and #furniture_queue > 0 do
+        local item = table.remove(furniture_queue, 1)
+        if actuators.is_dry_run() then
+            log.info(('DRY-RUN place %s @(%d,%d,%d)'):format(
+                item.role, item.x, item.y, item.z))
+        else
+            -- Route through actuators: build item via dfhack 'build' script
+            actuators.run_script('build', item.role,
+                tostring(item.x), tostring(item.y), tostring(item.z))
+            log.info(('place_furniture: placed %s @(%d,%d,%d)'):format(
+                item.role, item.x, item.y, item.z))
+        end
+        placed_this_pass = placed_this_pass + 1
     end
-    -- Route through actuators: build item via dfhack 'build' script
-    actuators.run_script('build', item.role,
-        tostring(item.x), tostring(item.y), tostring(item.z))
-    log.info(('place_furniture: placed %s @(%d,%d,%d)'):format(
-        item.role, item.x, item.y, item.z))
+
     last_place_tick = now
 end
 
@@ -507,7 +537,7 @@ function reset()
     scan_cursor_z  = 0
     scan_wrap_count= 0
     terrain_cache  = {}
-    open_cells     = {}
+    -- open_cells removed (CAT-3 FIX)
     blueprints     = {}
     pending_digs   = {}
     furniture_queue= {}

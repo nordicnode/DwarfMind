@@ -39,11 +39,12 @@ local EVAL_COOLDOWN      = 1200   -- re-evaluate FSM every ~10 dwarf-days
 local PERSIST_KEY        = 'dwarfmind_orchestrator_state'
 
 -- Threat thresholds
-local HOSTILE_SIEGE_THRESHOLD    = 4    -- ≥4 armed hostiles = SIEGE
-local STRESS_DISTRESS_THRESHOLD  = 20000-- fort median stress above this = DISTRESS concern
+local HOSTILE_SIEGE_THRESHOLD    = 4    -- >=4 armed hostiles = SIEGE
+local STRESS_DISTRESS_THRESHOLD  = 5    -- >=5 citizens above stress threshold = DISTRESS concern
 local FOOD_FAMINE_THRESHOLD      = 5    -- fewer than 5 food items = FAMINE
 local SEED_CRITICAL_THRESHOLD    = 3    -- fewer than 3 seed stacks = FAMINE
-local INFECTION_COUNT_THRESHOLD  = 2    -- ≥2 infected units = QUARANTINE
+local INFECTION_COUNT_THRESHOLD  = 2    -- >=2 infected units = QUARANTINE
+local CITIZEN_STRESS_FLOOR       = 20000-- per-citizen stress value passed to get_stressed_citizens
 
 -- Lunar quarantine: DF month 3 (Slate) and month 9 (Moonstone) are used as
 -- representative "lunar risk" months when miasma / syndrome spread is high.
@@ -147,30 +148,44 @@ end
 
 -- ---------------------------------------------------------------------------
 -- SENSOR AGGREGATION  (Layer 1 reads; all calls check ok flag)
+-- CAT-1 FIX: All wrappers now call the real sensor function signatures as
+-- documented in sensors.lua.  The old hallucinated endpoints
+-- (get_hostile_count, get_stress_median, get_food_item_count, get_seed_count)
+-- are replaced below.
 -- ---------------------------------------------------------------------------
 
+-- CAT-1 FIX: was sensors.get_hostile_count() — no such function.
+-- sensors.get_hostiles() returns (list, ok); count the list length.
 local function count_hostiles()
-    local val, ok = sensors.get_hostile_count()
+    local hostiles, ok = sensors.get_hostiles()
     if not ok then return 0 end
-    return val or 0
+    return hostiles and #hostiles or 0
 end
 
-local function get_stress_median()
-    local val, ok = sensors.get_stress_median()
+-- CAT-1 FIX: was sensors.get_stress_median() — no such function.
+-- sensors.get_stressed_citizens(threshold) returns (list, ok).
+-- We count how many citizens exceed the CITIZEN_STRESS_FLOOR and compare
+-- that count against STRESS_DISTRESS_THRESHOLD (an integer, not a median).
+local function get_stressed_count()
+    local stressed, ok = sensors.get_stressed_citizens(CITIZEN_STRESS_FLOOR)
     if not ok then return 0 end
-    return val or 0
+    return stressed and #stressed or 0
 end
 
+-- CAT-1 FIX: was sensors.get_food_item_count() — no such function.
+-- sensors.check_stockpile_levels() returns ({ food=N, ... }, ok).
 local function get_food_count()
-    local val, ok = sensors.get_food_item_count()
+    local stocks, ok = sensors.check_stockpile_levels()
     if not ok then return 999 end
-    return val or 999
+    return stocks and (stocks.food or 0) or 999
 end
 
+-- CAT-1 FIX: was sensors.get_seed_count() — no such function.
+-- Re-uses check_stockpile_levels() which already counts seeds.
 local function get_seed_count()
-    local val, ok = sensors.get_seed_count()
+    local stocks, ok = sensors.check_stockpile_levels()
     if not ok then return 999 end
-    return val or 999
+    return stocks and (stocks.seeds or 0) or 999
 end
 
 local function get_infection_count()
@@ -189,7 +204,6 @@ local function get_infection_count()
                 for j = 0, #sa - 1 do
                     local syn = sa[j]
                     if syn and syn.type then
-                        -- any active syndrome counts as potential infection vector
                         count = count + 1
                         break  -- count unit once
                     end
@@ -234,7 +248,7 @@ end
 
 local function arbitrate_state()
     local hostiles   = count_hostiles()
-    local stress     = get_stress_median()
+    local stressed   = get_stressed_count()
     local food       = get_food_count()
     local seeds      = get_seed_count()
     local infected   = get_infection_count()
@@ -255,14 +269,14 @@ local function arbitrate_state()
         return STATE.QUARANTINE, ('QUARANTINE: %s'):format(reason)
     end
 
-    -- DISTRESS / FAMINE: food shortage or extreme stress
+    -- DISTRESS / FAMINE: food shortage or too many highly-stressed citizens
     if food < FOOD_FAMINE_THRESHOLD
     or seeds < SEED_CRITICAL_THRESHOLD
-    or stress > STRESS_DISTRESS_THRESHOLD then
+    or stressed >= STRESS_DISTRESS_THRESHOLD then
         local reasons = {}
-        if food  < FOOD_FAMINE_THRESHOLD     then reasons[#reasons+1] = ('food=%d'):format(food)   end
-        if seeds < SEED_CRITICAL_THRESHOLD   then reasons[#reasons+1] = ('seeds=%d'):format(seeds) end
-        if stress> STRESS_DISTRESS_THRESHOLD then reasons[#reasons+1] = ('stress=%d'):format(stress) end
+        if food    < FOOD_FAMINE_THRESHOLD     then reasons[#reasons+1] = ('food=%d'):format(food)       end
+        if seeds   < SEED_CRITICAL_THRESHOLD   then reasons[#reasons+1] = ('seeds=%d'):format(seeds)     end
+        if stressed>= STRESS_DISTRESS_THRESHOLD then reasons[#reasons+1] = ('stressed_citizens=%d'):format(stressed) end
         return STATE.DISTRESS_FAMINE,
             ('DISTRESS_FAMINE: %s'):format(table.concat(reasons, ', '))
     end
@@ -294,20 +308,64 @@ end
 -- ---------------------------------------------------------------------------
 -- SIEGE ACTION ESCALATION
 -- ---------------------------------------------------------------------------
--- When entering SIEGE state, immediately escalate via actuators.
+-- CAT-1 FIX: Removed actuators.run_script('dwarfmind/reflex_defense') which
+-- DFHack cannot resolve as an internal framework path and would produce a
+-- "script not found" console error leaving gates open during a siege.
+--
+-- Replacement strategy:
+--   1. Alert all squads via actuators.run_command('alertlevel', '2').
+--   2. Close all bridges that are currently open by pulling their levers
+--      directly through sensors.get_levers() + actuators.pull_lever().
+--   3. Activate civilian burrow evacuation via actuators.set_civilian_alert().
+--
+-- This routes every mutation through actuators (the designated write gate)
+-- and never calls a non-existent DFHack script path.
 
 local function escalate_siege()
     if actuators.is_dry_run() then
         log.info('DRY-RUN: siege escalation actions skipped.')
         return
     end
-    -- 1. Alert all squads via alertlevel
-    actuators.run_command('alertlevel', '2')  -- level 2 = war footing
-    -- 2. Close all bridges (lever pulls) via a DFHack script
-    actuators.run_script('dwarfmind/reflex_defense')
-    -- 3. Ensure burrow evacuation
-    actuators.run_script('dwarfmind/reflex_burrow')
-    log.info('Siege escalation issued: squads alerted, bridges closing, burrow evacuating.')
+
+    -- 1. Alert all military squads
+    local ok_alert, err_alert = pcall(function()
+        actuators.run_command('alertlevel', '2')  -- level 2 = war footing
+    end)
+    if not ok_alert then
+        log.warn(('escalate_siege: alertlevel failed: %s'):format(tostring(err_alert)))
+    end
+
+    -- 2. Pull all open bridge-linked levers to close gates
+    local levers, ok_lev = sensors.get_levers()
+    if ok_lev and levers then
+        for _, entry in ipairs(levers) do
+            -- entry.state is populated by sensors.get_levers():
+            -- 'open' = bridge is down (open) and should be raised (closed)
+            -- Only pull levers that are not already closed and have no pull job queued
+            if (entry.state == 'open' or entry.state == nil)
+            and not entry.has_pull_job then
+                local ok_pull, err_pull = pcall(function()
+                    actuators.pull_lever(entry.building.id)
+                end)
+                if not ok_pull then
+                    log.warn(('escalate_siege: pull_lever id=%d failed: %s')
+                        :format(entry.building.id, tostring(err_pull)))
+                end
+            end
+        end
+    else
+        log.warn('escalate_siege: get_levers() failed; bridge closure skipped.')
+    end
+
+    -- 3. Activate civilian alert (moves civilians to safe burrow)
+    local ok_civ, err_civ = pcall(function()
+        actuators.set_civilian_alert(true)
+    end)
+    if not ok_civ then
+        log.warn(('escalate_siege: set_civilian_alert failed: %s'):format(tostring(err_civ)))
+    end
+
+    log.info('Siege escalation issued: squads alerted, bridge levers pulled, civilian alert active.')
 end
 
 -- ---------------------------------------------------------------------------
@@ -326,8 +384,10 @@ local function escalate_distress()
     if actuators.can_queue_order() then
         actuators.run_script('workorder', 'BrewDrink', '10')
     end
-    -- Activate medical supply chain
-    actuators.run_script('dwarfmind/reflex_infirmary_supply')
+    -- Activate medical supply chain via a real DFHack workorder script
+    if actuators.can_queue_order() then
+        actuators.run_script('workorder', 'MakeSoap', '5')
+    end
     log.info('Distress escalation issued: food/brew/medical orders queued.')
 end
 
@@ -340,9 +400,27 @@ local function escalate_quarantine()
         log.info('DRY-RUN: quarantine escalation skipped.')
         return
     end
-    -- Activate quarantine reflex (manages hospital burrows)
-    actuators.run_script('dwarfmind/reflex_quarantine')
-    log.info('Quarantine escalation issued: quarantine reflex invoked.')
+    -- Assign werebeast / infected citizens to quarantine burrow if it exists.
+    -- The burrow must be named 'Quarantine' and pre-created by the operator.
+    -- sensors.find_burrow_id_by_name() returns (id_or_nil, ok).
+    local burrow_id, ok_b = sensors.find_burrow_id_by_name('Quarantine')
+    if ok_b and burrow_id then
+        local infected_units, ok_u = sensors.get_werebeast_citizens()
+        if ok_u and infected_units then
+            for _, u in ipairs(infected_units) do
+                local ok_assign, err_assign = pcall(function()
+                    actuators.assign_unit_to_burrow(u.id, burrow_id)
+                end)
+                if not ok_assign then
+                    log.warn(('escalate_quarantine: assign unit %d failed: %s')
+                        :format(u.id, tostring(err_assign)))
+                end
+            end
+        end
+    else
+        log.warn('escalate_quarantine: no burrow named Quarantine found; skipping assignment.')
+    end
+    log.info('Quarantine escalation issued.')
 end
 
 -- ---------------------------------------------------------------------------

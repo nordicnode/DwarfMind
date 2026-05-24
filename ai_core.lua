@@ -9,6 +9,9 @@ local repeatUtil   = require('repeat-util')
 local logger       = reqscript('dwarfmind/logger')
 local sensors      = reqscript('dwarfmind/sensors')
 local actuators    = reqscript('dwarfmind/actuators')
+-- CAT-4 FIX: Load orchestrator so tick_slow can dispatch it first and gate
+-- all downstream reflexes through its cadence multipliers.
+local orchestrator = reqscript('dwarfmind/reflex_orchestrator')
 local reflexIdle   = reqscript('dwarfmind/reflex_idle')
 local reflexButcher = reqscript('dwarfmind/reflex_butcher')
 local reflexDistress = reqscript('dwarfmind/reflex_distress')
@@ -58,7 +61,7 @@ local GLOBAL_KEY        = 'dwarfmind'        -- prefix for repeat-util names + o
 local PERCEPTION_PERIOD = 100                -- ticks between fast loop iterations
                                              -- (~8 real-seconds at default game speed)
 local PLANNER_PERIOD    = 1200               -- ticks between slow loop iterations
-                                             -- (1200 ticks = 1 dwarf day ≈ 72 real-seconds
+                                             -- (1200 ticks = 1 dwarf day ~= 72 real-seconds
                                              --  at default speed of 100 ticks/frame)
 
 local NAME_FAST = GLOBAL_KEY .. '/perception'
@@ -73,9 +76,12 @@ local enabled = false
 -- ─── Tick callbacks ──────────────────────────────────────────────────────
 -- Fast loop: cheap reflex behaviors that need to react quickly.
 -- Defense lever loops stay here for sub-second response times.
+-- NOTE: fast-loop defense reflexes are NOT gated through orchestrator cadence;
+-- a PEACE-state military multiplier of 0.5 must never suppress the sub-second
+-- hostile response.  Cadence scaling applies only to the slow planner loop.
 --
 -- BUG FIX: all pcall pairs now use unique local variable names
--- (ok_idle/err_idle, ok_dist/err_dist, …) so that no outer variable is
+-- (ok_idle/err_idle, ok_dist/err_dist, ...) so that no outer variable is
 -- accidentally shadowed and error messages are attributed correctly.
 function tick_fast()
     if not sensors.is_fort_loaded() then return end
@@ -114,103 +120,107 @@ function tick_fast()
 end
 
 -- ─── Slow-loop reflex dispatch table ─────────────────────────────────────
--- Each entry: { module, 'label', log_fn }
+-- Each entry: { module, 'label', log_fn, 'category' }
+-- 'category' maps to the orchestrator's CADENCE_PROFILES key so the dispatch
+-- loop can call orchestrator.is_suspended(category) before executing.
+-- A nil category means the reflex is always executed (used for the orchestrator
+-- itself and for meta-reflexes that manage the FSM).
+--
+-- CAT-4 FIX: orchestrator is dispatched FIRST so cadence multipliers are
+-- written before any downstream reflex checks is_suspended()/get_cadence().
+-- The per-entry category tag then lets the dispatch loop skip suspended
+-- reflexes entirely, completing the Cat-4 framework alignment.
+--
 -- Execution order is by priority (top = highest). log_fn controls whether
 -- failures are ERROR-level (life-critical) or WARN-level (non-critical).
---
--- Using a dispatch table instead of 26 identical pcall blocks eliminates
--- boilerplate: adding a new reflex is a single table line rather than
--- a 4-line copy-paste block.
 local SLOW_REFLEXES = nil  -- populated after all locals are defined
 
 local function init_slow_reflexes()
     SLOW_REFLEXES = {
+        -- === FSM Orchestrator (always runs first; no category gate) ===
+        -- CAT-4 FIX: Dispatched unconditionally so the cadence profile is always
+        -- up-to-date before the rest of the reflexes are evaluated this tick.
+        { orchestrator,         'orchestrator',     log.err,  nil             },
+
         -- === High-priority Life & Death Reflexes ===
         -- 1.  Strange mood assistant (crucial to solve/satisfy mood requests quickly)
-        { reflexMoodHelper,     'mood_helper',      log.err  },
+        { reflexMoodHelper,     'mood_helper',      log.err,  'medical'       },
         -- 2.  Medical supplies (critical - health/life safety)
-        { reflexMedical,        'medical',          log.err  },
+        { reflexMedical,        'medical',          log.err,  'medical'       },
         -- 3.  Infirmary surgery supplies: sutures, crutches, plaster, buckets
-        --     (placed directly after medical — these items block active treatment)
-        { reflexInfirmarySupply,'infirmary_supply', log.err  },
-        -- 4.  Food & Drink Production (critical — prevents starvation)
-        { reflexProduction,     'production',       log.warn },
+        { reflexInfirmarySupply,'infirmary_supply', log.err,  'medical'       },
+        -- 4.  Food & Drink Production (critical -- prevents starvation)
+        { reflexProduction,     'production',       log.warn, 'production'    },
         -- 5.  Cemetery / coffin deficits (critical - miasma/dignity/ghosts)
-        { reflexCemetery,       'cemetery',         log.err  },
+        { reflexCemetery,       'cemetery',         log.err,  'administrative'},
         -- 6.  Cemetery slab engraving management (critical - prevents ghost rampages)
-        { reflexCemeterySlab,   'cemetery_slab',    log.err  },
+        { reflexCemeterySlab,   'cemetery_slab',    log.err,  'administrative'},
         -- 7.  Werebeast lunar quarantine (critical - prevents fort infection wipes)
-        { reflexQuarantine,     'quarantine',       log.err  },
+        { reflexQuarantine,     'quarantine',       log.err,  'medical'       },
         -- 8.  Stress spa / mental health intervention (critical - prevents tantrums)
-        { reflexStress,         'stress',           log.err  },
+        { reflexStress,         'stress',           log.err,  'medical'       },
         -- 9.  Tantrum-watch: early warning at lower stress floor + bad-thought check
-        --     (runs after reflex_stress so spa assignments take priority)
-        { reflexTantrumWatch,   'tantrum_watch',    log.warn },
+        { reflexTantrumWatch,   'tantrum_watch',    log.warn, 'medical'       },
         -- === Support / Economic Reflexes ===
         -- 10. Farming / crop rotation management
-        { reflexFarming,        'farming',          log.warn },
+        { reflexFarming,        'farming',          log.warn, 'agricultural'  },
         -- 11. Seed watch / plump helmet kitchen safety
-        { reflexSeedwatch,      'seedwatch',        log.warn },
+        { reflexSeedwatch,      'seedwatch',        log.warn, 'agricultural'  },
         -- 12. Hydrology / cistern water level management
-        { reflexHydrology,      'hydrology',        log.warn },
+        { reflexHydrology,      'hydrology',        log.warn, 'build'         },
         -- 13. Bedroom deficits (important - citizen happiness)
-        { reflexBeds,           'beds',             log.warn },
+        { reflexBeds,           'beds',             log.warn, 'build'         },
         -- 14. Clothing replacement / hygiene logistics
-        { reflexClothing,       'clothing',         log.warn },
+        { reflexClothing,       'clothing',         log.warn, 'production'    },
         -- 15. Military weapons and armor forging management
-        { reflexMilitaryGear,   'military_gear',    log.warn },
+        { reflexMilitaryGear,   'military_gear',    log.warn, 'military'      },
         -- 16. Ammunition and siege ammo forging management
-        { reflexSiegeAmmo,      'siege_ammo',       log.warn },
+        { reflexSiegeAmmo,      'siege_ammo',       log.warn, 'military'      },
         -- 17. Noble room demands and mandates management (luxury furniture)
-        { reflexNobleDemands,   'noble_demands',    log.warn },
+        { reflexNobleDemands,   'noble_demands',    log.warn, 'luxury'        },
         -- 18. Livestock butchering (non-critical population management)
-        { reflexButcher,        'butcher',          log.warn },
+        { reflexButcher,        'butcher',          log.warn, 'agricultural'  },
         -- 19. Livestock gelding population control
-        { reflexGeld,           'geld',             log.warn },
+        { reflexGeld,           'geld',             log.warn, 'agricultural'  },
         -- 20. Trade depot management
-        { reflexTrade,          'trade',            log.warn },
+        { reflexTrade,          'trade',            log.warn, 'administrative'},
         -- 21. Woodcutter/autochop management
-        { reflexWoodcutter,     'woodcutter',       log.warn },
+        { reflexWoodcutter,     'woodcutter',       log.warn, 'production'    },
         -- 22. Pasture assignment management
-        { reflexPasture,        'pasture',          log.warn },
+        { reflexPasture,        'pasture',          log.warn, 'agricultural'  },
         -- 23. Workshop clutter and garbage management
-        { reflexGarbage,        'garbage',          log.warn },
+        { reflexGarbage,        'garbage',          log.warn, 'administrative'},
         -- 24. Cleanup: claim forbidden rotting items to prevent miasma
-        { reflexCleanup,        'cleanup',          log.warn },
+        { reflexCleanup,        'cleanup',          log.warn, 'administrative'},
         -- 25. Auto container management (barrels/pots)
-        { reflexAutoContainer,  'auto_container',   log.warn },
+        { reflexAutoContainer,  'auto_container',   log.warn, 'production'    },
         -- 26. Soap production chain coordination
-        { reflexSoapChain,      'soap_chain',       log.warn },
+        { reflexSoapChain,      'soap_chain',       log.warn, 'production'    },
         -- 27. Pet population control (cat management)
-        { reflexVerminControl,  'vermin_control',   log.warn },
+        { reflexVerminControl,  'vermin_control',   log.warn, 'administrative'},
         -- 28. Justice and law enforcement audit
-        { reflexJustice,        'justice',          log.warn },
+        { reflexJustice,        'justice',          log.warn, 'administrative'},
         -- === Industry Logistics & Administrative Reflexes ===
-        -- 29. Bookkeeper precision audit (must run before inventory-dependent reflexes
-        --     in the next cycle; placed early in the economic block for that reason)
-        { reflexBookkeeperAudit,'bookkeeper_audit', log.warn },
+        -- 29. Bookkeeper precision audit
+        { reflexBookkeeperAudit,'bookkeeper_audit', log.warn, 'administrative'},
         -- 30. Tavern mug / goblet buffer (happiness logistics)
-        { reflexHospitality,    'hospitality',      log.warn },
-        -- 31. Automated metal recycling — drains melt-flagged item backlog
-        { reflexMeltCoordinator,'melt_coordinator', log.warn },
+        { reflexHospitality,    'hospitality',      log.warn, 'luxury'        },
+        -- 31. Automated metal recycling
+        { reflexMeltCoordinator,'melt_coordinator', log.warn, 'production'    },
         -- 32. Mechanism / TRAPPARTS engineering buffer
-        --     (critical infrastructure dependency for reflex_defense and reflex_hydrology)
-        { reflexTrapLogistics,  'trap_logistics',   log.warn },
-        -- 33. Potash / fertilization chain (extends reflex_farming pipeline)
-        { reflexPotashChain,    'potash_chain',     log.warn },
+        { reflexTrapLogistics,  'trap_logistics',   log.warn, 'military'      },
+        -- 33. Potash / fertilization chain
+        { reflexPotashChain,    'potash_chain',     log.warn, 'agricultural'  },
     }
 end
 
 -- Slow loop: planner / accounting work. Runs every PLANNER_PERIOD ticks.
 -- (1 tick = 1/1200 of a dwarf day; 1200 ticks = 1 dwarf day).
 --
--- Moved reflex_quarantine and reflex_cleanup here from tick_fast because
--- lunar phase checks and rotting item scans don't need sub-second reaction speeds.
--- reflex_butcher moved after beds (not life-critical, lower priority than shelter).
---
--- Execution order is by priority (see SLOW_REFLEXES table): life-critical
--- needs (health, burial, shelter) are addressed first so that if the work
--- order budget is exhausted, the most important work is already queued.
+-- CAT-4 FIX: The dispatch loop now reads each entry's category tag and calls
+-- orchestrator.is_suspended(category) before executing the reflex.  Suspended
+-- categories are skipped entirely, completing the cadence emission feedback loop.
+-- The orchestrator itself always runs (nil category = no gate).
 function tick_slow()
     if not sensors.is_fort_loaded() then return end
     actuators.reset_order_budget() -- Reset the gating budget every slow tick cycle
@@ -232,13 +242,18 @@ function tick_slow()
     end)
     if not ok_stock then log.warn('stockpile snapshot failed: ' .. tostring(err_stock)) end
 
-    -- Dispatch each reflex; failures are isolated so one bad module cannot
-    -- abort the rest of the queue.
+    -- CAT-4 FIX: Dispatch each reflex through orchestrator cadence gate.
+    -- entry[4] is the category string (nil = always run).
+    -- Suspended categories are skipped without logging to avoid log spam.
     for _, entry in ipairs(SLOW_REFLEXES) do
-        local mod, label, log_fn = entry[1], entry[2], entry[3]
-        local ok, err = dfhack.pcall(mod.run)
-        if not ok then
-            log_fn('reflex_' .. label .. ' failed: ' .. tostring(err))
+        local mod, label, log_fn, category = entry[1], entry[2], entry[3], entry[4]
+        -- Gate check: skip if the orchestrator has suspended this category.
+        -- The orchestrator entry itself has category=nil and is always executed.
+        if category == nil or not orchestrator.is_suspended(category) then
+            local ok, err = dfhack.pcall(mod.run)
+            if not ok then
+                log_fn('reflex_' .. label .. ' failed: ' .. tostring(err))
+            end
         end
     end
 end
@@ -250,6 +265,9 @@ local function arm()
     sensors.invalidate_cache()
     actuators.reset_order_budget()
 
+    -- CAT-4 FIX: orchestrator.reset() wired into arm() so its persist_loaded
+    -- flag and local timers are cleared on every fortress load/unload cycle.
+    orchestrator.reset()
     reflexIdle.reset()
     reflexDistress.reset()
     reflexDefense.reset()
@@ -370,6 +388,8 @@ function status()
                 PLANNER_PERIOD))
     print(('  log level:    %s')
         :format(level_names[logger.threshold] or 'unknown'))
+    -- CAT-4 FIX: surface current FSM state in status output
+    print(('  fsm state:    %s'):format(orchestrator.get_state()))
 end
 
 return _ENV
