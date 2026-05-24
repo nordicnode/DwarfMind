@@ -156,7 +156,13 @@ function run()
                 log.debug(string.format('STRESS MONITOR: %s still stressed (stress=%d) in spa; holding',
                     sensors.describe_unit(u), stress))
                 
-                -- Coordinate with civilian alerts to prevent pathfinding conflicts
+                -- Coordinate with civilian alerts to prevent pathfinding conflicts.
+                -- EDGE CASES & LATENCY:
+                -- 1. When an alert is active, the dwarf is removed from the Respite burrow but
+                --    remains globally restricted to the civilian alert burrow (e.g. Safety/Panic).
+                --    They will wander and satisfy needs freely within the Safety burrow boundary.
+                -- 2. Restoring the Respite burrow assignment occurs on the next tick_slow() cycle,
+                --    leaving a short latency window where they are only restricted by their labors.
                 if spa_id then
                     local is_in_spa_burrow = dfhack.burrows.isAssignedUnit(spa_id, u)
                     if alert_active then
