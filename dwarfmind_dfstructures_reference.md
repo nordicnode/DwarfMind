@@ -211,6 +211,18 @@ local function classify(u)
 end
 ```
 
+### 1.6  Healthcare & Wellness (Wounds, Bleeding)
+
+*   **Bleeding Detection**: Do not use `dfhack.units.isBleeding`. Instead, check the unit's body structure properties directly:
+    ```lua
+    local is_bleeding = u.body and u.body.blood_max and u.body.blood_max > 0 and u.body.blood_count < u.body.blood_max
+    ```
+*   **Wounds & Healthcare Flags**: Healthcare needs are tracked under the unit's health compound:
+    ```lua
+    local needs_hospital = u.health and u.health.flags.needs_healthcare
+    ```
+    *Note: `u.health` may be nil if `u.flags3.compute_health` has not yet been processed by the game engine.*
+
 ---
 
 ## 2. `df.global.world.items.all`
@@ -352,6 +364,30 @@ Helpers: `dfhack.items.getPosition(it)`, `dfhack.items.getDescription(it,0)`,
 `dfhack.items.getContainedItems(it)`, `dfhack.items.moveToGround(it, pos)`,
 `dfhack.items.moveToContainer(it, container)`.
 
+### 2.4  Builtin Materials and Industry Filters (Ash, Lye, Soap, Tallow, Oil)
+
+*   **Builtin Materials (`df.builtin_mats`)**: Used to identify materials that do not have custom indexes in the inorganic raws.
+    *   **Ash**: `item:getMaterial() == df.builtin_mats.ASH` (on items of type `BAR`).
+    *   **Lye**: `item:getMaterial() == df.builtin_mats.LYE` (on items of type `LIQUID_MISC`).
+*   **Soap**: Checked by inspecting material flags:
+    ```lua
+    local mat = dfhack.matinfo.decode(item:getMaterial(), item:getMaterialIndex())
+    local is_soap = mat and mat.material and mat.material.flags.SOAP
+    ```
+*   **Tallow & Fats**: Stored as globs (`df.item_type.GLOB`). Checked via material tokens:
+    ```lua
+    local mat = dfhack.matinfo.decode(item:getMaterial(), item:getMaterialIndex())
+    if mat and mat.material then
+        local token = mat:getToken() or ""
+        local is_tallow = token:find('TALLOW') or token:find('FAT')
+    end
+    ```
+*   **Oils**: Stored as liquids (`df.item_type.LIQUID_MISC`). Checked via material tokens:
+    ```lua
+    local mat = dfhack.matinfo.decode(item:getMaterial(), item:getMaterialIndex())
+    local is_oil = mat and mat.material and (mat:getToken() or ""):find('OIL')
+    ```
+
 ---
 
 ## 3. `df.global.world.buildings.all`
@@ -455,6 +491,33 @@ A farm plot is `getType() == df.building_type.FarmPlot`.
 what you want for pathfinding queries. For zones/stockpiles iterate
 `room.extents[(x - room.x) + (y - room.y) * room.width]` (skip
 `building_extents_type.None` entries).
+
+### 3.4  Levers & Linked Mechanisms (Bridges, Gates)
+
+*   **Linked Mechanisms**: A lever (instance of `df.building_trapst` with `trap_type == df.trap_type.Lever`) stores links to target gates/bridges in `linked_mechanisms`:
+    ```lua
+    local links = lever_bld.linked_mechanisms
+    for m_idx = 0, #links - 1 do
+        local m = links[m_idx]
+        local tref = dfhack.items.getGeneralRef(m, df.general_ref_type.BUILDING_HOLDER)
+        if tref then
+            local tg = tref:getBuilding()
+            -- tg is the target building (e.g., bridge or floodgate)
+        end
+    end
+    ```
+*   **Gate/Bridge State**: The current open/closed status is stored in `tg.gate_flags`:
+    *   **Bridges (`df.building_type.Bridge`)**:
+        *   `tg.gate_flags.raised`: Bridge is closed (raised up/wall).
+        *   `tg.gate_flags.raising`: Bridge is currently closing.
+        *   `tg.gate_flags.lowering`: Bridge is currently opening.
+        *   Otherwise (none of the above): Bridge is open (lowered down/flat).
+    *   **Weapon Traps (`df.building_type.Weapon`)**:
+        *   `tg.gate_flags.retracted`: Spikes are in (retracted).
+    *   **Floodgates / Doors**:
+        *   `tg.gate_flags.closed`: Door/gate is shut.
+        *   `tg.gate_flags.closing`: Door/gate is shutting.
+        *   `tg.gate_flags.opening`: Door/gate is opening.
 
 ---
 
@@ -744,5 +807,166 @@ local o  = b.occupancy[x%16][y%16]
 print(df.tiletype[tt], df.tiletype.attrs[tt].shape,
       d.hidden, d.dig, o.building, o.unit)
 ```
+
+---
+
+## 8. Manager Orders & Workorders (`df.global.world.manager_orders`)
+
+DwarfMind uses manager orders to queue manufacturing tasks dynamically.
+
+### 8.1  `df.manager_order` Structure
+
+The list of active orders is located in `df.global.world.manager_orders` (C++ vector of `df.manager_order` pointers).
+
+| Field | Type | Description |
+|---|---|---|
+| `job_type` | `df.job_type` enum | Type of work to perform (e.g. `MakeBarrel`, `MakeLye`, `MakeSoap`, `MakeTool`). |
+| `amount_total` | `int32_t` | Target production count. |
+| `amount_left` | `int32_t` | Quantity remaining to be constructed. |
+| `item_subtype` | `int16_t` | Tool/pot/item subtype index. Valid for jobs like `MakeTool`. |
+| `material_category` | bitfield | Required material groups (e.g., `wood` or `stone`). |
+
+### 8.2  Auditing Custom Subtypes
+For generic job types like `MakeTool`, query the item definition raws to check the exact item subtype being produced:
+```lua
+local mgr_orders = df.global.world.manager_orders
+for o = 0, #mgr_orders - 1 do
+    local order = mgr_orders[o]
+    if order.job_type == df.job_type.MakeTool and order.item_subtype >= 0 then
+        local is_pot = false
+        pcall(function()
+            local tool_def = df.global.world.raws.itemdefs.tools[order.item_subtype]
+            if tool_def and tool_def.id == 'ITEM_TOOL_LARGE_POT' then
+                is_pot = true
+            end
+        end)
+        if is_pot then
+            local remaining = order.amount_left
+        end
+    end
+end
+```
+
+## 9. Fortress Administration & UI Globals (`df.global.plotinfo`)
+
+`df.global.plotinfo` (type `df.plotinfost`) contains coordinates, active civilization information, and various management sub-structures.
+
+### 9.1  Burrows (`plotinfo.burrows`)
+Burrow information is stored in the compound `df.global.plotinfo.burrows` (type `df.burrow_infost`).
+*   **Active Burrows Vector**: `df.global.plotinfo.burrows.list` (stl-vector of `df.burrow*`).
+*   **Next ID**: `df.global.plotinfo.burrows.next_id`.
+*   **Burrow Struct (`df.burrow`)**:
+    *   `id`: `int32_t` (stable local ID).
+    *   `name`: `stl-string`.
+    *   `units`: `stl-vector<int32_t>` (assigned unit IDs; binary vector).
+    *   `flags`: `burrow_flag` bitfield:
+        *   `limit_workshops`: workshops inside this burrow are restricted to assigned dwarves.
+        *   `suspended`: burrow is temporarily disabled.
+    *   *Note: For checking tile containment, do not manually parse the raw block coordinates (`block_x/y/z` vectors). Use `dfhack.burrows.isAssignedTile(burrow, x, y, z)`.*
+
+### 9.2  Civilian Alerts (`plotinfo.alerts`)
+Civilian alert states and safety burrows are managed under `df.global.plotinfo.alerts` (type `df.alert_state_infost`).
+*   **Alert States Vector**: `df.global.plotinfo.alerts.list` (stl-vector of `df.alert_statest*`).
+*   **Active Alert Index**: `df.global.plotinfo.alerts.civ_alert_idx` (`int32_t`). Set to `-1` if no civilian alert is active, or the index of the active alert in `list`.
+*   **Alert State Struct (`df.alert_statest`)**:
+    *   `id`: `int32_t`.
+    *   `name`: `stl-string`.
+    *   `burrows`: `stl-vector<int32_t>` (civilian safety burrow IDs. When the alert is active, civilians are restricted to these burrows).
+
+### 9.3  Kitchen Exclusions (`plotinfo.kitchen`)
+Kitchen settings (restrictions on cooking or brewing) are tracked via parallel vectors in `df.global.plotinfo.kitchen`.
+
+> [!WARNING]
+> **DF Version Drift / Naming Discrepancies**:
+> Depending on your DFHack version, the kitchen exclusion vectors have two possible sets of names:
+>
+> 1. **Legacy/Local Names (used in the DwarfMind codebase)**:
+>    * `kitchen.excl_item_type` (stl-vector of `df.item_type`)
+>    * `kitchen.excl_mat_type` (stl-vector of `int16_t`)
+>    * `kitchen.excl_mat_index` (stl-vector of `int32_t`)
+>    * `kitchen.excl_type` (stl-vector of `int8_t` where `0` = Cook, `1` = Brew)
+>
+> 2. **Upstream/Newer DFHack Names**:
+>    * `kitchen.item_types` (stl-vector of `df.item_type`)
+>    * `kitchen.mat_types` (stl-vector of `int16_t`)
+>    * `kitchen.mat_indices` (stl-vector of `int32_t`)
+>    * `kitchen.exc_types` (stl-vector of `df.kitchen_exc_type` bitfield where `.Cook` and `.Brew` are flags)
+
+*   **Manipulating Exclusions**: To ban/unban materials, search the vectors in parallel for a matching `item_type`, `mat_type`, and `mat_index`. Insert a new index with `:insert('#', value)` to ban, or remove with `:erase(index)` to unban.
+
+### 9.4  Caravans & Visitors (`plotinfo.caravans`)
+*   **Active Caravans Vector**: `df.global.plotinfo.caravans` (stl-vector of `df.caravan_state*`).
+*   **Caravan State Struct (`df.caravan_state`)**:
+    *   `trade_state`: `enum` (`None` = 0, `Approaching` = 1, `AtDepot` = 2, `Leaving` = 3, `Stuck` = 4).
+    *   `time_remaining`: `int16_t` (ticks remaining before caravan departs).
+    *   `entity`: `int32_t` (historical entity ID of the civilization).
+    *   `mood`: `int32_t` (satisfaction with trading, init 50. Lower mood makes merchants refuse to trade).
+    *   `goods`: `stl-vector<int32_t>` (item IDs already brought to/appraised at the depot).
+    *   `depot_notified`: `int8_t` (warns if a depot is needed).
+
+---
+
+## 10. Military & Squads (`df.squad` and `df.global.world.squads`)
+
+*   **Global Squads Vector**: `df.global.world.squads.all` (stl-vector of `df.squad*`).
+*   **Squad Struct (`df.squad`)**:
+    *   `id`: `int32_t` (unique squad ID).
+    *   `name`: `language_name` compound.
+    *   `alias`: `stl-string` (player nickname).
+    *   `positions`: `stl-vector<df.squad_position*>` (squad slots/members).
+        *   `occupant`: `int32_t` (historical figure ID of the dwarf in this position; `-1` if empty).
+    *   `rooms`: `stl-vector<df.squad_barracks_infost*>` (assigned barracks).
+        *   `building_id`: `int32_t` (associated barracks building ID).
+        *   `mode`: `squad_use_flags` bitfield (controls sleep, train, equipment store).
+    *   `ammo.ammunition`: `stl-vector<df.squad_ammo_spec*>` (ammunition specs).
+
+---
+
+## 11. Nobles, Mandates & Justice
+
+### 11.1 Mandates (`df.global.world.mandates`)
+Nobles issue mandates that restrict trade or require manufacturing.
+*   **Active Mandates Vector**: `df.global.world.mandates.all` (stl-vector of `df.mandate*`).
+*   **Mandate Struct (`df.mandate`)**:
+    *   `unit`: pointer to `df.unit` (noble issuing the mandate).
+    *   `mode`: `df.mandate_type` enum (`Export` = 0, `Make` = 1, `Guild` = 2).
+    *   `item_type` / `item_subtype`: type and subtype index of the mandated item.
+    *   `mat_type` / `mat_index`: material type and index.
+    *   `amount_total`: total amount of items required.
+    *   `amount_remaining`: amount left to make.
+    *   `timeout_counter`: `int32_t` (increments once per 10 frames).
+    *   `timeout_limit`: `int32_t` (once `timeout_counter >= timeout_limit`, mandate expires).
+
+---
+
+## 12. Game Time & Frame Counters
+
+*   **`df.global.world.frame_counter`**: Raw number of frames elapsed since embark (1 frame = 1 tick).
+*   **`df.global.cur_year_tick`**: Tick offset within the current year.
+    *   `1,200` ticks = 1 day.
+    *   `28` days = 1 month (`33,600` ticks).
+    *   `12` months = 1 year (`403,200` ticks).
+    *   *Calculation for current day of month*: `(df.global.cur_year_tick // 1200) % 28 + 1`.
+
+---
+
+## 13. DFHack Library Functions
+
+When writing reflexes, prefer safe DFHack Lua wrappers over direct raw pointer traversal:
+
+| Module / Function | Description |
+|---|---|
+| `dfhack.isMapLoaded()` | Returns `true` if a fort map is currently loaded and safe to query. |
+| `dfhack.pcall(fn, ...)` | Safe call wrapper. Captures C++ exceptions and Lua crashes. **Must be used for all critical queries.** |
+| `dfhack.units.getCitizens(true)` | Returns a 1-indexed Lua table of all citizens (ignores hostiles/visitors). |
+| `dfhack.units.getNoblePositions(u)` | Returns noble titles/positions held by unit `u` (or `nil` if none). |
+| `dfhack.units.getPosition(u)` | Safely retrieves the unit's coords (resolves cages, riders, etc.). |
+| `dfhack.burrows.isAssignedUnit(burrow, u)` | Checks if unit `u` is assigned to `burrow`. |
+| `dfhack.burrows.isAssignedTile(burrow, x, y, z)` | Checks if tile is part of `burrow`. |
+| `dfhack.matinfo.decode(type, index)` | Decodes material code and index into a `matinfo` object. |
+| `dfhack.matinfo.find(token)` | Finds a material by token string (e.g. `'PLANT_MAT:MUSHROOM_HELMET_PLUMP:STRUCTURAL'`). |
+| `dfhack.maps.getTileBlock(x, y, z)` | Safely retrieves the `map_block` containing coordinate `(x,y,z)`. |
+
+---
 
 End of reference.
