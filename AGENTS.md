@@ -4,6 +4,16 @@ Welcome, Developer Agent. This document contains the comprehensive specification
 
 ---
 
+## 📚 Key Documentation Map
+
+Before writing any code, locate the appropriate documentation file depending on your task:
+*   **Core Project & Usage Guide**: Refer to [README.md](file:///home/mikey/Games/DwarfFortress/hack/scripts/dwarfmind/README.md) for startup commands, CLI/REPL controls, and file layouts.
+*   **Architectural Blueprint**: Refer to [ARCHITECTURE.md](file:///home/mikey/Games/DwarfFortress/hack/scripts/dwarfmind/ARCHITECTURE.md) to understand the **Sense-Think-Act** layer isolation, cadences, caching, and actuator order budgets.
+*   **DF / DFHack Memory Schema & API Reference**: Refer to [dwarfmind_dfstructures_reference.md](file:///home/mikey/Games/DwarfFortress/hack/scripts/dwarfmind/dwarfmind_dfstructures_reference.md) for verified fields, enums, bitflags, version naming discrepancies (e.g. kitchen exclusions), and safe Lua wrapper helper APIs.
+*   **Coding Standards & Onboarding**: This guide ([AGENTS.md](file:///home/mikey/Games/DwarfFortress/hack/scripts/dwarfmind/AGENTS.md)) serves as the primary source for module contracts, indexing conventions, nil pointer safety, and automated test commands.
+
+---
+
 ## 🗺️ Architectural Paradigm: Sense-Think-Act
 
 DwarfMind is designed as a decentralized cognitive system. All operations are strictly segregated into three distinct layers to maintain isolation and ensure safety:
