@@ -25,13 +25,13 @@ function run()
     -- Enable autofarm and set default thresholds to ensure healthy food/seed buffers.
     if autofarm_active ~= true then
         log.info('farming audit: ensuring DFHack autofarm plugin is enabled')
-        actuators.run_script('enable', 'autofarm')
-        
+        actuators.run_command('enable', 'autofarm')
+
         -- Set standard seed thresholds (e.g. keep at least 100 of each major underground crop)
-        actuators.run_script('autofarm', 'threshold', '100', 'MUSHROOM_HELMET_PLUMP')
-        actuators.run_script('autofarm', 'threshold', '100', 'GRASS_TAIL_PIG')
-        actuators.run_script('autofarm', 'threshold', '100', 'GRASS_WHEAT_CAVE')
-        actuators.run_script('autofarm', 'threshold', '100', 'PLANT_ROUND_SWEET')
+        actuators.run_command('autofarm', 'threshold', '100', 'MUSHROOM_HELMET_PLUMP')
+        actuators.run_command('autofarm', 'threshold', '100', 'GRASS_TAIL_PIG')
+        actuators.run_command('autofarm', 'threshold', '100', 'GRASS_WHEAT_CAVE')
+        actuators.run_command('autofarm', 'threshold', '100', 'PLANT_ROUND_SWEET')
         
         autofarm_active = true
         last_action = now

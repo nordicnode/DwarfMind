@@ -24,7 +24,7 @@ function run()
     -- Enable tailor plugin to automatically strip rags and order replacements
     if tailor_active ~= true then
         log.info('clothing audit: ensuring DFHack tailor plugin is enabled')
-        actuators.run_script('enable', 'tailor')
+        actuators.run_command('enable', 'tailor')
         tailor_active = true
         last_action = now
     end

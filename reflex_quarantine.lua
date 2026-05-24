@@ -54,7 +54,9 @@ function run()
 
     -- Build lookup of beds designated as rooms owned by citizen IDs
     local citizen_beds = {}
-    for _, b in ipairs(df.global.world.buildings.all) do
+    local all_bld = df.global.world.buildings.all
+    for i = 0, #all_bld - 1 do
+        local b = all_bld[i]
         if b:getType() == df.building_type.Bed then
             if df.building_bedst:is_instance(b) and b.room and b.room.extents ~= nil and b.room.width > 0 then
                 local owner_id = b.owner_id

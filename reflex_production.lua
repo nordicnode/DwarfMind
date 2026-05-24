@@ -35,8 +35,8 @@ function run()
     if drink_count < MIN_DRINK then
         log.warn(string.format('drink level low: %d (threshold %d)', drink_count, MIN_DRINK))
         if (now - last_action.drink) >= ACTION_COOLDOWN then
-            log.info('queueing workorder to brew 15 drinks')
-            actuators.run_script('workorder', 'BrewDrink', '15')
+            log.info('queueing workorder to brew drinks')
+            actuators.run_script('workorder', string.format('[{"job":"BrewDrink","amount_total":15}]'))
             last_action.drink = now
         end
     else
@@ -48,8 +48,8 @@ function run()
     if food_count < MIN_FOOD then
         log.warn(string.format('food level low: %d (threshold %d)', food_count, MIN_FOOD))
         if (now - last_action.food) >= ACTION_COOLDOWN then
-            log.info('queueing workorder to prepare 10 meals')
-            actuators.run_script('workorder', 'PrepareMeal', '10')
+            log.info('queueing workorder to prepare meals')
+            actuators.run_script('workorder', string.format('[{"job":"PrepareMeal","amount_total":10}]'))
             last_action.food = now
         end
     else

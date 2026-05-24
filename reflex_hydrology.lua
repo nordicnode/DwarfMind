@@ -1,4 +1,8 @@
 -- DwarfMind reflex: cistern and reservoir water level safety.
+-- NOTE ON LEVER SEMANTICS: In Dwarf Fortress, pulling a lever always TOGGLES
+-- the state of its linked mechanism (e.g., floodgate open→closed or closed→open).
+-- It does NOT set an absolute state. The code below pulls when it wants to
+-- change the current state, not to set a specific state.
 -- Monitors liquid depth at a configured sensor tile and operates
 -- inlet/outlet levers to maintain safe water levels.
 --@ module = true
@@ -49,7 +53,15 @@ end
 
 local function is_cistern_gate_open(l)
     -- In DF, lever state 1 indicates triggered/activated (open inlet flow target)
-    return l.building.state == 1
+    -- Cast to df.building_trapst to access .state since base df.building doesn't have it
+    local lever_bld = nil
+    if df.building_trapst:is_instance(l.building) then
+        lever_bld = l.building
+    end
+    if lever_bld then
+        return lever_bld.state == 1
+    end
+    return false
 end
 
 function run()

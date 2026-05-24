@@ -66,8 +66,11 @@ end
 -- (disable_labor and enable_labor are defined later with proper nil guards)
 
 -- Helper: Find a burrow pointer by its stable ID.
+-- Uses 0-based indexing because burrows.list is a C++ vector.
 local function find_burrow_by_id(burrow_id)
-    for _, b in ipairs(df.global.plotinfo.burrows.list) do
+    local list = df.global.plotinfo.burrows.list
+    for i = 0, #list - 1 do
+        local b = list[i]
         if b.id == burrow_id then
             return b
         end
@@ -132,7 +135,28 @@ function ban_plant_cooking(plant_raw_id)
             log.warn('could not find material info for plant ' .. plant_raw_id)
             return false
         end
-        dfhack.kitchen.addExclusion({Cook=true}, df.item_type.PLANT, -1, matinfo.type, matinfo.index)
+        -- Directly manipulate kitchen exclusion vectors to avoid non-existent API
+        local kitchen = df.global.plotinfo.kitchen
+        if not kitchen then
+            log.warn('kitchen data not available')
+            return false
+        end
+        -- Check for existing exclusion to avoid duplicates
+        for i = 0, #kitchen.excl_item_type - 1 do
+            if kitchen.excl_item_type[i] == df.item_type.PLANT
+               and kitchen.excl_mat_type[i] == matinfo.type
+               and kitchen.excl_mat_index[i] == matinfo.index
+               and kitchen.excl_type[i] == 0 then -- 0 = Cook
+                log.debug('cooking already banned for plant material ' .. plant_raw_id)
+                return true
+            end
+        end
+        -- Add new exclusion
+        kitchen.excl_item_type:insert('#', df.item_type.PLANT)
+        kitchen.excl_mat_type:insert('#', matinfo.type)
+        kitchen.excl_mat_index:insert('#', matinfo.index)
+        kitchen.excl_type:insert('#', 0) -- Cook
+        log.info('banned cooking of plant material ' .. plant_raw_id)
         return true
     end)
 end
@@ -151,7 +175,28 @@ function unban_plant_cooking(plant_raw_id)
             log.warn('could not find material info for plant ' .. plant_raw_id)
             return false
         end
-        dfhack.kitchen.removeExclusion({Cook=true}, df.item_type.PLANT, -1, matinfo.type, matinfo.index)
+        -- Directly manipulate kitchen exclusion vectors to avoid non-existent API
+        local kitchen = df.global.plotinfo.kitchen
+        if not kitchen then
+            log.warn('kitchen data not available')
+            return false
+        end
+        -- Find and remove Cook exclusions for this plant material
+        local i = 0
+        while i < #kitchen.excl_item_type do
+            if kitchen.excl_item_type[i] == df.item_type.PLANT
+               and kitchen.excl_mat_type[i] == matinfo.type
+               and kitchen.excl_mat_index[i] == matinfo.index
+               and kitchen.excl_type[i] == 0 then -- 0 = Cook
+                kitchen.excl_item_type:erase(i)
+                kitchen.excl_mat_type:erase(i)
+                kitchen.excl_mat_index:erase(i)
+                kitchen.excl_type:erase(i)
+                log.info('unbanned cooking of plant material ' .. plant_raw_id)
+            else
+                i = i + 1
+            end
+        end
         return true
     end)
 end
@@ -190,12 +235,33 @@ function run_script(name, ...)
         orders_this_tick = orders_this_tick + 1
     end
 
-    local ok = safe_act(name, dfhack.run_script, name, ...)
+    local ok, ret = safe_act(name, dfhack.run_script, name, ...)
     -- If the script failed and this was a workorder, refund the budget slot
     if not ok and is_workorder then
         orders_this_tick = math.max(0, orders_this_tick - 1)
     end
-    return ok
+    return ok, ret
+end
+
+-- Call a DFHack command (plugin or built-in command) by name.
+-- This is for C++ plugins like 'enable', 'autochop', 'autofarm', 'tailor'
+-- which are NOT Lua scripts and cannot be invoked via run_script.
+function run_command(name, ...)
+    -- dfhack.run_command takes a single command string, not separate arguments.
+    -- Concatenate all arguments into one space-separated command line.
+    local args = {...}
+    for i, v in ipairs(args) do args[i] = tostring(v) end
+    local cmd = name
+    if #args > 0 then
+        cmd = cmd .. ' ' .. table.concat(args, ' ')
+    end
+
+    if dry_run then
+        log.info('DRY RUN: dfhack.run_command(' .. cmd .. ')')
+        return true
+    end
+    local ok, ret = safe_act(name, dfhack.run_command, cmd)
+    return ok, ret
 end
 
 -- Unforbid a single item.

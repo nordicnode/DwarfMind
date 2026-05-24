@@ -67,7 +67,8 @@ function run()
     for _, vec_name in ipairs(TRADE_GOOD_VECTORS) do
         local vec = other[vec_name]
         if vec then
-            for _, it in ipairs(vec) do
+            for v = 0, #vec - 1 do
+                local it = vec[v]
                 local f = it.flags
                 -- Must be free, on the ground, not forbidden/dumped, and not already at the depot.
                 if f.on_ground 

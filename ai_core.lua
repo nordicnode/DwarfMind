@@ -91,8 +91,9 @@ end
 function tick_slow()
     if not sensors.is_fort_loaded() then return end
     actuators.reset_order_budget() -- Reset the gating budget every slow tick cycle
-    local ok, err = dfhack.pcall(function()
-        -- Stockpile snapshot (informational only, no orders)
+    
+    -- Stockpile snapshot (informational only, no orders)
+    local ok_stock, err_stock = dfhack.pcall(function()
         local s, sensor_ok = sensors.check_stockpile_levels()
         if sensor_ok then
             log.info(string.format(
@@ -101,19 +102,21 @@ function tick_slow()
         else
             log.warn('stockpile snapshot: sensor failed')
         end
+    end)
+    if not ok_stock then log.warn('stockpile snapshot failed: ' .. tostring(err_stock)) end
 
-        -- === High-priority Life & Death Reflexes ===
+    -- === High-priority Life & Death Reflexes ===
         -- 1. Strange mood assistant (crucial to solve/satisfy mood requests quickly)
         local ok_mood, err_mood = dfhack.pcall(function()
             reflexMoodHelper.run()
         end)
-        if not ok_mood then log.warn('reflex_mood_helper failed: ' .. tostring(err_mood)) end
+        if not ok_mood then log.err('reflex_mood_helper failed: ' .. tostring(err_mood)) end
 
         -- 2. Medical supplies (critical - health/life safety)
         local ok_med, err_med = dfhack.pcall(function()
             reflexMedical.run()
         end)
-        if not ok_med then log.warn('reflex_medical failed: ' .. tostring(err_med)) end
+        if not ok_med then log.err('reflex_medical failed: ' .. tostring(err_med)) end
 
         -- 3. Food & Drink Production (critical — prevents starvation)
         local ok_prod, err_prod = dfhack.pcall(function()
@@ -125,25 +128,25 @@ function tick_slow()
         local ok_cem, err_cem = dfhack.pcall(function()
             reflexCemetery.run()
         end)
-        if not ok_cem then log.warn('reflex_cemetery failed: ' .. tostring(err_cem)) end
+        if not ok_cem then log.err('reflex_cemetery failed: ' .. tostring(err_cem)) end
 
         -- 5. Cemetery slab engraving management (critical - prevents ghost rampages)
         local ok_slab, err_slab = dfhack.pcall(function()
             reflexCemeterySlab.run()
         end)
-        if not ok_slab then log.warn('reflex_cemetery_slab failed: ' .. tostring(err_slab)) end
+        if not ok_slab then log.err('reflex_cemetery_slab failed: ' .. tostring(err_slab)) end
 
         -- 6. Werebeast lunar quarantine (critical - prevents fort infection wipes)
         local ok_quar, err_quar = dfhack.pcall(function()
             reflexQuarantine.run()
         end)
-        if not ok_quar then log.warn('reflex_quarantine failed: ' .. tostring(err_quar)) end
+        if not ok_quar then log.err('reflex_quarantine failed: ' .. tostring(err_quar)) end
 
         -- 7. Stress spa / mental health intervention (critical - prevents tantrums/insanity)
         local ok_stress, err_stress = dfhack.pcall(function()
             reflexStress.run()
         end)
-        if not ok_stress then log.warn('reflex_stress failed: ' .. tostring(err_stress)) end
+        if not ok_stress then log.err('reflex_stress failed: ' .. tostring(err_stress)) end
 
         -- === Support / Economic Reflexes ===
         -- 8. Farming / crop rotation management
@@ -229,8 +232,6 @@ function tick_slow()
             reflexCleanup.run()
         end)
         if not ok_cln then log.warn('reflex_cleanup failed: ' .. tostring(err_cln)) end
-    end)
-    if not ok then log.err('tick_slow: ' .. tostring(err)) end
 end
 
 -- ─── Scheduler control ───────────────────────────────────────────────────

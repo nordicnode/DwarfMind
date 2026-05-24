@@ -94,7 +94,7 @@ function run()
             if a.birth_year ~= b.birth_year then
                 return a.birth_year < b.birth_year
             end
-            return a.birth_seconds < b.birth_seconds
+            return a.birth_time < b.birth_time
         end)
 
         if total_adults >= threshold then

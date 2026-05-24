@@ -23,11 +23,11 @@ local RECOVERED_THRESHOLD = 1000
 -- Cooldown to prevent re-intervening on the same dwarf too quickly.
 local ACTION_COOLDOWN = 1200
 
--- Track which dwarves we've sent to spa and their original labor states.
--- Format: { [unit_id] = { tick_sent = N, original_labors = {labor_id = true, ...} } }
 local in_spa = {}  -- [unit_id] = record
+local state_loaded = false
 
 local function load_in_spa()
+    state_loaded = true
     local entry = dfhack.persistent.get('dwarfmind/stress_spa')
     local loaded = {}
     if entry and entry.value and entry.value ~= '' then
@@ -128,7 +128,7 @@ function run()
     if not sensors.is_fort_loaded() then return end
 
     -- Ensure we are loaded
-    if next(in_spa) == nil then
+    if not state_loaded then
         load_in_spa()
     end
 
@@ -136,6 +136,7 @@ function run()
     if not tick_ok then now = 0 end
 
     -- 1. Check recovery for currently quarantined units directly from the tracking list
+    local pruned = false
     for unit_id, record in pairs(in_spa) do
         local u = df.unit.find(unit_id)
         if u and dfhack.units.isCitizen(u) and not dfhack.units.isDead(u) then
@@ -145,7 +146,7 @@ function run()
                     sensors.describe_unit(u), stress, RECOVERED_THRESHOLD))
                 restore_dwarf(u, record)
                 in_spa[unit_id] = nil
-                save_in_spa()
+                pruned = true
             else
                 log.debug(string.format('STRESS MONITOR: %s still stressed (stress=%d) in spa; holding',
                     sensors.describe_unit(u), stress))
@@ -153,8 +154,13 @@ function run()
         else
             -- Prune invalid/dead units from tracking
             in_spa[unit_id] = nil
-            save_in_spa()
+            pruned = true
         end
+    end
+
+    -- Save persistent state once after all recovery/pruning operations
+    if pruned then
+        save_in_spa()
     end
 
     -- 2. Scan for new stressed dwarfs not yet in the spa
@@ -170,28 +176,29 @@ function run()
         return
     end
 
+    local intervened = false
     for _, entry in ipairs(stressed) do
         local u = entry.unit
         if not in_spa[u.id] then
-            local last_tick = entry.tick_sent or -math.huge
-            if (now - last_tick) >= ACTION_COOLDOWN then
-                log.warn(string.format('STRESS INTERVENTION: %s stress=%d exceeds threshold %d; sending to Respite',
-                    sensors.describe_unit(u), entry.stress, STRESS_THRESHOLD))
-                local original_labors = save_labor_state(u)
-                disable_all_labors(u)
-                actuators.assign_unit_to_burrow(u, spa_id)
-                in_spa[u.id] = { tick_sent = now, original_labors = original_labors }
-                save_in_spa()
-            end
+            log.warn(string.format('STRESS INTERVENTION: %s stress=%d exceeds threshold %d; sending to Respite',
+                sensors.describe_unit(u), entry.stress, STRESS_THRESHOLD))
+            local original_labors = save_labor_state(u)
+            disable_all_labors(u)
+            actuators.assign_unit_to_burrow(u, spa_id)
+            in_spa[u.id] = { tick_sent = now, original_labors = original_labors }
+            intervened = true
         end
+    end
+
+    -- Save persistent state once after all interventions
+    if intervened then
+        save_in_spa()
     end
 end
 
 function reset()
-    load_in_spa()
+    state_loaded = false
+    in_spa = {}
 end
-
--- Initialize on first script load
-load_in_spa()
 
 return _ENV

@@ -43,7 +43,8 @@ function run()
 
     local function count_queued(job_type)
         local n = 0
-        for _, order in ipairs(world_orders) do
+        for o = 0, #world_orders - 1 do
+            local order = world_orders[o]
             if order.job_type == job_type then
                 n = n + order.amount_left
             end
@@ -56,7 +57,8 @@ function run()
     local function count_stock(vec)
         if not vec then return 0 end
         local n = 0
-        for _, it in ipairs(vec) do
+        for v = 0, #vec - 1 do
+            local it = vec[v]
             local f = it.flags
             if not f.in_building and not f.forbid and not f.dump and not f.removed then
                 n = n + 1
@@ -94,8 +96,8 @@ function run()
                 if job_enum_name then
                     -- check if we already have a manager order for this job type
                     local already_ordered = false
-                    for _, order in ipairs(world_orders) do
-                        if order.job_type == m.job_type then
+                    for o = 0, #world_orders - 1 do
+                        if world_orders[o].job_type == m.job_type then
                             already_ordered = true
                             break
                         end

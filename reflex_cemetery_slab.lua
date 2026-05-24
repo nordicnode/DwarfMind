@@ -18,8 +18,10 @@ local last_action = -math.huge
 -- ─── Helpers ─────────────────────────────────────────────────────────────
 local function count_blank_slabs()
     local count = 0
-    if df.global.world.items.other.SLAB then
-        for _, slab in ipairs(df.global.world.items.other.SLAB) do
+    local slab_vec = df.global.world.items.other.SLAB
+    if slab_vec then
+        for s = 0, #slab_vec - 1 do
+            local slab = slab_vec[s]
             local f = slab.flags
             if not f.in_building and not f.forbid and not f.dump and not f.removed then
                 if df.item_slabst:is_instance(slab) then
@@ -59,14 +61,16 @@ function run()
     if (now - last_action) < ACTION_COOLDOWN then return end
 
     -- 1. Ensure C++ autoslab plugin is enabled
-    actuators.run_script('enable', 'autoslab')
+    actuators.run_command('enable', 'autoslab')
 
     -- 2. Audit blank slabs
     local blank_count = count_blank_slabs()
 
     -- 3. Audit queued slab work orders
     local queued_slabs = 0
-    for _, order in ipairs(df.global.world.manager_orders) do
+    local mgr_orders = df.global.world.manager_orders
+    for o = 0, #mgr_orders - 1 do
+        local order = mgr_orders[o]
         if order.job_type == df.job_type.ConstructSlab then
             queued_slabs = queued_slabs + order.amount_left
         end

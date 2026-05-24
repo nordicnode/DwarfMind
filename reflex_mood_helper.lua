@@ -20,8 +20,10 @@ local last_action = -math.huge
 -- ─── Helpers ─────────────────────────────────────────────────────────────
 local function get_usable_thread_counts()
     local silk_count, wool_count, plant_count = 0, 0, 0
-    if df.global.world.items.other.THREAD then
-        for _, it in ipairs(df.global.world.items.other.THREAD) do
+    local thread_vec = df.global.world.items.other.THREAD
+    if thread_vec then
+        for t = 0, #thread_vec - 1 do
+            local it = thread_vec[t]
             local f = it.flags
             if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
                 local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
@@ -54,10 +56,11 @@ local function slaughter_excess_livestock()
         table.insert(race_units[u.race], u)
     end
     
-    -- Find a candidate that can be slaughtered safely (leaving at least 1 male and 1 female of that race)
+    -- For each species, find the oldest safe candidate within that species only.
+    -- This prevents selecting an older animal from a low-population species
+    -- that would destroy its breeding pair.
     local best_target = nil
-    local oldest_birth_year = math.huge
-    local oldest_birth_seconds = math.huge
+    local best_race = nil
 
     for race, units in pairs(race_units) do
         -- Only consider if we have at least 3 animals of this species
@@ -73,10 +76,11 @@ local function slaughter_excess_livestock()
                 end
             end
 
-            -- We want to find a candidate u in units such that:
-            -- If u is male, we must have male_count > 1 (so at least 1 male remains).
-            -- If u is female, we must have female_count > 1 (so at least 1 female remains).
-            -- If u is gelded/other sex, we can slaughter it freely.
+            -- Find the oldest safe slaughter candidate WITHIN THIS SPECIES
+            local species_oldest = nil
+            local species_oldest_year = math.huge
+            local species_oldest_time = math.huge
+
             for _, u in ipairs(units) do
                 local safe_to_slaughter = false
                 if u.sex == 1 then
@@ -88,21 +92,31 @@ local function slaughter_excess_livestock()
                 end
 
                 if safe_to_slaughter then
-                    -- Select the oldest safe animal (smallest birth_year, then smallest birth_seconds)
+                    -- Track the oldest within this species
                     local is_older = false
-                    if u.birth_year < oldest_birth_year then
+                    if u.birth_year < species_oldest_year then
                         is_older = true
-                    elseif u.birth_year == oldest_birth_year then
-                        if u.birth_seconds < oldest_birth_seconds then
+                    elseif u.birth_year == species_oldest_year then
+                        if u.birth_time < species_oldest_time then
                             is_older = true
                         end
                     end
 
                     if is_older then
-                        best_target = u
-                        oldest_birth_year = u.birth_year
-                        oldest_birth_seconds = u.birth_seconds
+                        species_oldest = u
+                        species_oldest_year = u.birth_year
+                        species_oldest_time = u.birth_time
                     end
+                end
+            end
+
+            -- Only consider this species if we found a safe candidate
+            -- Compare against global best (oldest across all qualified species)
+            if species_oldest then
+                if not best_target or species_oldest_year < best_target.birth_year or
+                   (species_oldest_year == best_target.birth_year and species_oldest_time < best_target.birth_time) then
+                    best_target = species_oldest
+                    best_race = race
                 end
             end
         end
@@ -145,8 +159,8 @@ function run()
             -- 1. Wood Log
             if mc.wood then
                 log.warn(string.format('Citizen %s is stuck in strange mood (needs wood) -> enabling autochop', name))
-                actuators.run_script('enable', 'autochop')
-                actuators.run_script('autochop', 'target', '40', '15')
+                actuators.run_command('enable', 'autochop')
+                actuators.run_command('autochop', 'target', '40', '15')
                 action_taken = true
             end
 

@@ -71,8 +71,10 @@ local function ensure_cache()
 
         -- Single-pass all-units filter: hostile / livestock / grazer in one loop.
         -- Uses if/else tree so each unit is classified exactly once.
+        -- C++ vectors are 0-indexed; use numeric loop to capture element 0.
         local hostiles, livestock, grazers = {}, {}, {}
-        for _, u in ipairs(all_units) do
+        for i = 0, #all_units - 1 do
+            local u = all_units[i]
             if not U.isActive(u) or not U.isAlive(u) then
                 -- skip dead/inactive
             elseif U.isInvader(u) and not u.flags1.caged and not u.flags1.chained then
@@ -86,7 +88,9 @@ local function ensure_cache()
                 if raw and raw.caste and raw.caste[u.caste]
                    and raw.caste[u.caste].flags.STANDARD_GRAZER then
                     local assigned = false
-                    for _, ref in ipairs(u.general_refs) do
+                    local u_refs = u.general_refs
+                    for r = 0, #u_refs - 1 do
+                        local ref = u_refs[r]
                         if ref:getType() == df.general_ref_type.BUILDING_CIVZONE_ASSIGNED then
                             assigned = true
                             break
@@ -101,38 +105,6 @@ local function ensure_cache()
         tick_cache.hostiles = hostiles
         tick_cache.livestock = livestock
         tick_cache.unpastured_grazers = grazers
-
-        -- Pre-count deceased citizens for cemetery sensor.
-        local dead_citizens = 0
-        local unburied_citizens = 0
-
-        -- Track assigned tombs/graves
-        local owned_graves = {}
-        for _, b in ipairs(df.global.world.buildings.all) do
-            local t = b:getType()
-            if t == df.building_type.Coffin or (t == df.building_type.Civzone and b.type == df.civzone_type.Tomb) then
-                local owner_id = b.owner_id
-                if owner_id == -1 and b.owner then
-                    owner_id = b.owner.id
-                end
-                if owner_id and owner_id ~= -1 then
-                    owned_graves[owner_id] = true
-                end
-            end
-        end
-
-        -- Iterate over all loaded units to catch deceased citizens
-        for _, u in ipairs(df.global.world.units.all) do
-            if U.isCitizen(u) and U.isDead(u) then
-                dead_citizens = dead_citizens + 1
-                if not owned_graves[u.id] then
-                    unburied_citizens = unburied_citizens + 1
-                end
-            end
-        end
-
-        tick_cache.dead_citizens = dead_citizens
-        tick_cache.unburied_citizens = unburied_citizens
 
         -- Pre-filter distressed citizens (basic wellness flags)
         local distressed = {}
@@ -178,7 +150,8 @@ local function ensure_cache()
         -- Pre-filter rotting refuse (corpses inside fort)
         local rotting = {}
         local function check_and_add(vec)
-            for _, it in ipairs(vec) do
+            for i = 0, #vec - 1 do
+                local it = vec[i]
                 if it.flags.on_ground and it.flags.forbid and not it.flags.dump and not it.flags.garbage_collect then
                     local pos = it.pos
                     local block = dfhack.maps.getTileBlock(pos.x, pos.y, pos.z)
@@ -310,7 +283,8 @@ function check_stockpile_levels()
     return safe('check_stockpile_levels', {}, function()
         local function count(vec)
             local n = 0
-            for _, it in ipairs(vec) do
+            for i = 0, #vec - 1 do
+                local it = vec[i]
                 local f = it.flags
                 if not f.forbid
                    and not f.rotten
@@ -464,12 +438,16 @@ function get_distressed_citizens()
                     -- Extract missing items
                     local missing = {}
                     local satisfied = {}
-                    for _, ji_ref in ipairs(job.items) do
+                    local job_items = job.items
+                    for j = 0, #job_items - 1 do
+                        local ji_ref = job_items[j]
                         satisfied[ji_ref.job_item_idx] = true
                     end
 
                     local missing_cats = {}
-                    for idx, ji in ipairs(job.job_items) do
+                    local job_job_items = job.job_items
+                    for idx = 0, #job_job_items - 1 do
+                        local ji = job_job_items[idx]
                         if not satisfied[idx] then
                             table.insert(missing, describe_job_item(ji))
                             if ji.flags.silk then missing_cats.silk = true
@@ -519,12 +497,15 @@ end
 function get_levers()
     return safe('get_levers', {}, function()
         local levers = {}
-        for _, b in ipairs(df.global.world.buildings.other.TRAP) do
+        local traps = df.global.world.buildings.other.TRAP
+        for i = 0, #traps - 1 do
+            local b = traps[i]
             if b.trap_type == df.trap_type.Lever then
                 local name = b.name or ""
                 local has_pull = false
-                for _, j in ipairs(b.jobs) do
-                    if j.job_type == df.job_type.PullLever then
+                local b_jobs = b.jobs
+                for j = 0, #b_jobs - 1 do
+                    if b_jobs[j].job_type == df.job_type.PullLever then
                         has_pull = true
                         break
                     end
@@ -552,7 +533,9 @@ function check_bedroom_status()
     return safe('check_bedroom_status', { homeless=0, unowned_bedrooms=0, unbuilt_beds=0, queued_beds=0 }, function()
         local citizens = dfhack.units.getCitizens(true) or {}
         local owned_beds = {}
-        for _, bld in ipairs(df.global.world.buildings.all) do
+        local all_bld = df.global.world.buildings.all
+        for i = 0, #all_bld - 1 do
+            local bld = all_bld[i]
             if bld:getType() == df.building_type.Bed then
                 local owner_id = bld.owner_id
                 if owner_id == -1 and bld.owner then
@@ -572,7 +555,9 @@ function check_bedroom_status()
         end
 
         local unowned_bedrooms = 0
-        for _, building in ipairs(df.global.world.buildings.all) do
+        local all_bld = df.global.world.buildings.all
+        for i = 0, #all_bld - 1 do
+            local building = all_bld[i]
             if building:getType() == df.building_type.Bed then
                 if building.room and building.room.extents ~= nil and building.room.width > 0 and building.owner_id == -1 then
                     unowned_bedrooms = unowned_bedrooms + 1
@@ -581,14 +566,29 @@ function check_bedroom_status()
         end
 
         local unbuilt_beds = 0
-        for _, bed in ipairs(df.global.world.items.other.BED) do
-            if not bed.flags.in_building and not bed.flags.forbid and not bed.flags.dump then
-                unbuilt_beds = unbuilt_beds + 1
+        for i = 0, #all_bld - 1 do
+            local bld = all_bld[i]
+            if bld:getType() == df.building_type.Bed then
+                -- Only count if the building is actually constructed (flags.exists)
+                -- and not assigned to any owner, and NOT already in a designated room
+                -- (those are counted in unowned_bedrooms to avoid double-counting).
+                if bld.flags.exists then
+                    local owner_id = bld.owner_id
+                    if owner_id == -1 and bld.owner then
+                        owner_id = bld.owner.id
+                    end
+                    local in_room = (bld.room and bld.room.extents ~= nil and bld.room.width > 0)
+                    if owner_id == -1 and not in_room and not bld.flags.forbid and not bld.flags.dump then
+                        unbuilt_beds = unbuilt_beds + 1
+                    end
+                end
             end
         end
 
         local queued_beds = 0
-        for _, order in ipairs(df.global.world.manager_orders) do
+        local mgr_orders = df.global.world.manager_orders
+        for i = 0, #mgr_orders - 1 do
+            local order = mgr_orders[i]
             if order.job_type == df.job_type.ConstructBed then
                 queued_beds = queued_beds + order.amount_left
             end
@@ -606,7 +606,9 @@ end
 -- Returns the first active TradeDepot building and an ok flag.
 function get_active_depot()
     return safe('get_active_depot', nil, function()
-        for _, bld in ipairs(df.global.world.buildings.all) do
+        local all_bld = df.global.world.buildings.all
+        for i = 0, #all_bld - 1 do
+            local bld = all_bld[i]
             if bld:getType() == df.building_type.TradeDepot and bld.flags.exists then
                 return bld
             end
@@ -619,8 +621,9 @@ end
 function get_active_caravans()
     return safe('get_active_caravans', {}, function()
         local result = {}
-        for _, car in ipairs(df.global.plotinfo.caravans) do
-            table.insert(result, car)
+        local caravans = df.global.plotinfo.caravans
+        for i = 0, #caravans - 1 do
+            table.insert(result, caravans[i])
         end
         return result
     end)
@@ -639,7 +642,9 @@ end
 function get_doors()
     return safe('get_doors', {}, function()
         local result = {}
-        for _, door in ipairs(df.global.world.buildings.all) do
+        local all_bld = df.global.world.buildings.all
+        for i = 0, #all_bld - 1 do
+            local door = all_bld[i]
             if door:getType() == df.building_type.Door and door.flags.exists then
                 table.insert(result, door)
             end
@@ -657,7 +662,8 @@ function get_noble_unit(role_code)
         for _, u in ipairs(citizens) do
             local noble_positions = dfhack.units.getNoblePositions(u)
             if noble_positions then
-                for _, pos in ipairs(noble_positions) do
+                for p = 0, #noble_positions - 1 do
+                    local pos = noble_positions[p]
                     if pos.position.code == role_code then
                         return u
                     end
@@ -691,25 +697,29 @@ function check_hospital_supplies()
         local other = df.global.world.items.other
 
         if other.SPLINT then
-            for _, it in ipairs(other.SPLINT) do
+            for i = 0, #other.SPLINT - 1 do
+                local it = other.SPLINT[i]
                 if is_valid(it) then splints = splints + 1 end
             end
         end
 
         if other.CRUTCH then
-            for _, it in ipairs(other.CRUTCH) do
+            for i = 0, #other.CRUTCH - 1 do
+                local it = other.CRUTCH[i]
                 if is_valid(it) then crutches = crutches + 1 end
             end
         end
 
         if other.BUCKET then
-            for _, it in ipairs(other.BUCKET) do
+            for i = 0, #other.BUCKET - 1 do
+                local it = other.BUCKET[i]
                 if is_valid(it) then buckets = buckets + 1 end
             end
         end
 
         if other.BAR then
-            for _, it in ipairs(other.BAR) do
+            for b = 0, #other.BAR - 1 do
+                local it = other.BAR[b]
                 if is_valid(it) then
                     local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
                     if mat and mat.material and mat.material.flags.SOAP then
@@ -720,12 +730,19 @@ function check_hospital_supplies()
         end
 
         if other.POWDER_MISC then
-            for _, it in ipairs(other.POWDER_MISC) do
+            for i = 0, #other.POWDER_MISC - 1 do
+                local it = other.POWDER_MISC[i]
                 if is_valid(it) then
                     local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
                     if mat and mat.inorganic then
                         local mid = mat.inorganic.id
                         if mid == "GYPSUM" or mid == "ALABASTER" or mid == "SELENITE" or mid == "SATINSPAR" then
+                            plaster = plaster + (it.stack_size > 0 and it.stack_size or 1)
+                        end
+                    elseif mat and mat.material then
+                        -- Fallback: check material token directly with exact match
+                        local token = mat:getToken() or ""
+                        if token == "GYPSUM" or token == "ALABASTER" or token == "SELENITE" or token == "SATINSPAR" then
                             plaster = plaster + (it.stack_size > 0 and it.stack_size or 1)
                         end
                     end
@@ -739,7 +756,9 @@ function check_hospital_supplies()
         local queued_plaster = 0
         local queued_buckets = 0
 
-        for _, order in ipairs(df.global.world.manager_orders) do
+        local mgr_orders = df.global.world.manager_orders
+        for o = 0, #mgr_orders - 1 do
+            local order = mgr_orders[o]
             local jt = order.job_type
             if jt == df.job_type.ConstructSplint then
                 queued_splints = queued_splints + order.amount_left
@@ -776,13 +795,44 @@ function check_cemetery_status()
     return safe('check_cemetery_status', {
         dead_citizens = 0, unburied_citizens = 0, unplaced_coffins = 0, queued_coffins = 0
     }, function()
-        local cache = ensure_cache()
-        local dead_citizens = cache.dead_citizens or 0
-        local unburied_citizens = cache.unburied_citizens or 0
+        local U = dfhack.units
+        local dead_citizens = 0
+        local unburied_citizens = 0
+
+        -- Track assigned tombs/graves
+        local owned_graves = {}
+        local all_buildings = df.global.world.buildings.all
+        for i = 0, #all_buildings - 1 do
+            local b = all_buildings[i]
+            local t = b:getType()
+            if t == df.building_type.Coffin or (t == df.building_type.Civzone and b.type == df.civzone_type.Tomb) then
+                local owner_id = b.owner_id
+                if owner_id == -1 and b.owner then
+                    owner_id = b.owner.id
+                end
+                if owner_id and owner_id ~= -1 then
+                    owned_graves[owner_id] = true
+                end
+            end
+        end
+
+        -- Iterate over all loaded units to catch deceased citizens
+        local all_units_vec = df.global.world.units.all
+        for i = 0, #all_units_vec - 1 do
+            local u = all_units_vec[i]
+            if U.isCitizen(u) and U.isDead(u) then
+                dead_citizens = dead_citizens + 1
+                if not owned_graves[u.id] then
+                    unburied_citizens = unburied_citizens + 1
+                end
+            end
+        end
 
         local unplaced_coffins = 0
         if df.global.world.items.other.COFFIN then
-            for _, coffin in ipairs(df.global.world.items.other.COFFIN) do
+            local coffin_vec = df.global.world.items.other.COFFIN
+            for i = 0, #coffin_vec - 1 do
+                local coffin = coffin_vec[i]
                 if not coffin.flags.in_building and not coffin.flags.forbid and not coffin.flags.dump and not coffin.flags.removed then
                     unplaced_coffins = unplaced_coffins + 1
                 end
@@ -790,7 +840,9 @@ function check_cemetery_status()
         end
 
         local queued_coffins = 0
-        for _, order in ipairs(df.global.world.manager_orders) do
+        local mgr_orders2 = df.global.world.manager_orders
+        for i = 0, #mgr_orders2 - 1 do
+            local order = mgr_orders2[i]
             if order.job_type == df.job_type.ConstructCoffin then
                 queued_coffins = queued_coffins + order.amount_left
             end
@@ -821,7 +873,8 @@ function get_pasture_zones()
         local result = {}
         local zones = df.global.world.buildings.other.ACTIVITY_ZONE
         if zones then
-            for _, bld in ipairs(zones) do
+            for z = 0, #zones - 1 do
+                local bld = zones[z]
                 if bld.type == df.civzone_type.Pen then
                     table.insert(result, bld)
                 end
@@ -846,7 +899,9 @@ end
 function find_burrow_id_by_name(name)
     return safe('find_burrow_id_by_name', nil, function()
         local target = name:lower()
-        for _, burrow in ipairs(df.global.plotinfo.burrows.list) do
+        local burrows = df.global.plotinfo.burrows.list
+        for b = 0, #burrows - 1 do
+            local burrow = burrows[b]
             if burrow.name:lower() == target then
                 return burrow.id
             end
@@ -864,9 +919,11 @@ function check_military_gear_status()
     }, function()
         local soldiers = 0
         if df.global.plotinfo and df.global.plotinfo.equipment and df.global.plotinfo.equipment.squads then
-            for _, squad in ipairs(df.global.plotinfo.equipment.squads) do
-                for _, pos in ipairs(squad.positions) do
-                    if pos.occupant > -1 then
+            local squads = df.global.plotinfo.equipment.squads
+            for s = 0, #squads - 1 do
+                local positions = squads[s].positions
+                for p = 0, #positions - 1 do
+                    if positions[p].occupant > -1 then
                         soldiers = soldiers + 1
                     end
                 end
@@ -894,25 +951,26 @@ function check_military_gear_status()
         local other = df.global.world.items.other
 
         if other.HELM then
-            for _, it in ipairs(other.HELM) do
-                if is_valid_metal_gear(it) then helms = helms + 1 end
+            for h = 0, #other.HELM - 1 do
+                if is_valid_metal_gear(other.HELM[h]) then helms = helms + 1 end
             end
         end
 
         if other.ARMOR then
-            for _, it in ipairs(other.ARMOR) do
-                if is_valid_metal_gear(it) then breastplates = breastplates + 1 end
+            for a = 0, #other.ARMOR - 1 do
+                if is_valid_metal_gear(other.ARMOR[a]) then breastplates = breastplates + 1 end
             end
         end
 
         if other.PANTS then
-            for _, it in ipairs(other.PANTS) do
-                if is_valid_metal_gear(it) then greaves = greaves + 1 end
+            for p = 0, #other.PANTS - 1 do
+                if is_valid_metal_gear(other.PANTS[p]) then greaves = greaves + 1 end
             end
         end
 
         if other.SHIELD then
-            for _, it in ipairs(other.SHIELD) do
+            for sh = 0, #other.SHIELD - 1 do
+                local it = other.SHIELD[sh]
                 local f = it.flags
                 if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
                     shields = shields + 1
@@ -921,8 +979,8 @@ function check_military_gear_status()
         end
 
         if other.WEAPON then
-            for _, it in ipairs(other.WEAPON) do
-                if is_valid_metal_gear(it) then weapons = weapons + 1 end
+            for w = 0, #other.WEAPON - 1 do
+                if is_valid_metal_gear(other.WEAPON[w]) then weapons = weapons + 1 end
             end
         end
 
@@ -932,18 +990,19 @@ function check_military_gear_status()
         local queued_shields = 0
         local queued_weapons = 0
 
-        for _, order in ipairs(df.global.world.manager_orders) do
-            local jt = order.job_type
+        local mgr_orders = df.global.world.manager_orders
+        for o = 0, #mgr_orders - 1 do
+            local jt = mgr_orders[o].job_type
             if jt == df.job_type.MakeArmor then
-                queued_breastplates = queued_breastplates + order.amount_left
+                queued_breastplates = queued_breastplates + mgr_orders[o].amount_left
             elseif jt == df.job_type.MakeHelm then
-                queued_helms = queued_helms + order.amount_left
+                queued_helms = queued_helms + mgr_orders[o].amount_left
             elseif jt == df.job_type.MakePants then
-                queued_greaves = queued_greaves + order.amount_left
+                queued_greaves = queued_greaves + mgr_orders[o].amount_left
             elseif jt == df.job_type.MakeShield then
-                queued_shields = queued_shields + order.amount_left
+                queued_shields = queued_shields + mgr_orders[o].amount_left
             elseif jt == df.job_type.MakeWeapon then
-                queued_weapons = queued_weapons + order.amount_left
+                queued_weapons = queued_weapons + mgr_orders[o].amount_left
             end
         end
 
@@ -970,10 +1029,13 @@ function get_cluttered_workshops()
         local result = {}
         local workshops = df.global.world.buildings.other.WORKSHOP_ANY
         if workshops then
-            for _, bld in ipairs(workshops) do
+            for w = 0, #workshops - 1 do
+                local bld = workshops[w]
                 if bld.flags.exists then
                     local clutter_items = {}
-                    for _, bi in ipairs(bld.contained_items) do
+                    local contained = bld.contained_items
+                    for c = 0, #contained - 1 do
+                        local bi = contained[c]
                         if bi.use == 2 and bi.item then
                             local it = bi.item
                             local f = it.flags
@@ -1002,7 +1064,9 @@ function get_noble_room_deficits()
         if not ok then return {} end
 
         local owned_rooms = {}
-        for _, b in ipairs(df.global.world.buildings.all) do
+        local all_bld = df.global.world.buildings.all
+        for i = 0, #all_bld - 1 do
+            local b = all_bld[i]
             local owner_id = b.owner_id
             if owner_id == -1 and b.owner then
                 owner_id = b.owner.id
@@ -1033,7 +1097,8 @@ function get_noble_room_deficits()
         for _, u in ipairs(citizens) do
             local noble_positions = dfhack.units.getNoblePositions(u)
             if noble_positions then
-                for _, np in ipairs(noble_positions) do
+                for p = 0, #noble_positions - 1 do
+                    local np = noble_positions[p]
                     local pos = np.position
                     local req_bedroom = pos.required_bedroom > 0
                     local req_office = pos.required_office > 0
@@ -1071,8 +1136,9 @@ function check_active_mandates()
     return safe('check_active_mandates', {}, function()
         local result = {}
         if df.global.world.mandates and df.global.world.mandates.all then
-            for _, mandate in ipairs(df.global.world.mandates.all) do
-                table.insert(result, mandate)
+            local mandates = df.global.world.mandates.all
+            for m = 0, #mandates - 1 do
+                table.insert(result, mandates[m])
             end
         end
         return result
@@ -1092,9 +1158,10 @@ function get_stressed_citizens(threshold)
         local spa_burrow = nil
         
         if spa_id then
-            for _, b in ipairs(df.global.plotinfo.burrows.list) do
-                if b.id == spa_id then
-                    spa_burrow = b
+            local burrows = df.global.plotinfo.burrows.list
+            for b = 0, #burrows - 1 do
+                if burrows[b].id == spa_id then
+                    spa_burrow = burrows[b]
                     break
                 end
             end
@@ -1166,8 +1233,9 @@ function get_citizens_in_tattered_clothing()
         
         for _, u in ipairs(citizens) do
             local tattered = {}
-            for _, inv_item in ipairs(u.inventory) do
-                local item = inv_item.item
+            local inv = u.inventory
+            for iv = 0, #inv - 1 do
+                local item = inv[iv].item
                 if item and item.flags2.tattered then
                     table.insert(tattered, item)
                 end
@@ -1204,19 +1272,19 @@ function get_spare_clothing_stock()
         end
         
         if other.PANTS then
-            for _, it in ipairs(other.PANTS) do
-                if is_valid_civilian_clothing(it) then stock.pants = stock.pants + 1 end
+            for p = 0, #other.PANTS - 1 do
+                if is_valid_civilian_clothing(other.PANTS[p]) then stock.pants = stock.pants + 1 end
             end
         end
         -- Note: Torso civilian clothes (shirts, dresses, etc.) live in the ARMOR vector
         if other.ARMOR then
-            for _, it in ipairs(other.ARMOR) do
-                if is_valid_civilian_clothing(it) then stock.shirts = stock.shirts + 1 end
+            for a = 0, #other.ARMOR - 1 do
+                if is_valid_civilian_clothing(other.ARMOR[a]) then stock.shirts = stock.shirts + 1 end
             end
         end
         if other.SHOES then
-            for _, it in ipairs(other.SHOES) do
-                if is_valid_civilian_clothing(it) then stock.shoes = stock.shoes + 1 end
+            for s = 0, #other.SHOES - 1 do
+                if is_valid_civilian_clothing(other.SHOES[s]) then stock.shoes = stock.shoes + 1 end
             end
         end
         
@@ -1232,7 +1300,8 @@ function get_plump_helmet_seed_count()
         local count = 0
         local other = df.global.world.items.other
         if other.SEEDS then
-            for _, seed in ipairs(other.SEEDS) do
+            for s = 0, #other.SEEDS - 1 do
+                local seed = other.SEEDS[s]
                 if not seed.flags.forbid and not seed.flags.dump and not seed.flags.garbage_collect and not seed.flags.removed then
                     local mat = dfhack.matinfo.decode(seed:getMaterial(), seed:getMaterialIndex())
                     -- mat.material.id is the generic material class (e.g. "SEED"), not the plant.
@@ -1278,7 +1347,8 @@ function get_metal_bars_stock()
         local stock = { steel = 0, iron = 0, bronze = 0, copper = 0 }
         local other = df.global.world.items.other
         if other.BAR then
-            for _, it in ipairs(other.BAR) do
+            for b = 0, #other.BAR - 1 do
+                local it = other.BAR[b]
                 local f = it.flags
                 if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
                     local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())

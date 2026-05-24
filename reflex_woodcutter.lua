@@ -40,8 +40,8 @@ function run()
         if current_status ~= true then
             log.warn(string.format('wood logs low: %d (threshold %d) -> enabling autochop plugin',
                 logs_count, MIN_LOGS))
-            actuators.run_script('enable', 'autochop')
-            actuators.run_script('autochop', 'target', tostring(MAX_LOGS), tostring(MIN_LOGS))
+            actuators.run_command('enable', 'autochop')
+            actuators.run_command('autochop', 'target', tostring(MAX_LOGS), tostring(MIN_LOGS))
             current_status = true
             last_action = now
         end
@@ -50,7 +50,7 @@ function run()
         if current_status ~= false then
             log.info(string.format('wood logs healthy: %d (threshold %d) -> disabling autochop plugin',
                 logs_count, MAX_LOGS))
-            actuators.run_script('disable', 'autochop')
+            actuators.run_command('disable', 'autochop')
             current_status = false
             last_action = now
         end

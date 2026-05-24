@@ -41,7 +41,7 @@ function run()
         log.warn(string.format('cemetery deficit: %d unburied dead, but coffin supply (stock=%d, queued=%d) is short by %d',
             unburied, unplaced, queued, deficit))
         log.info(string.format('queueing workorder to construct %d coffin(s)', deficit))
-        actuators.run_script('workorder', string.format('[{"job":"ConstructCoffin","amount_total":%d,"material":"INORGANIC"}]', deficit))
+        actuators.run_script('workorder', string.format('[{"job":"ConstructCoffin","amount_total":%d,"material_category":["wood","stone"]}]', deficit))
         last_action = now
     else
         log.debug(string.format('coffin supply sufficient: unburied=%d, supply=%d', unburied, supply))

@@ -50,8 +50,8 @@ function run()
     log.warn(string.format('pasture audit: found %d unpastured grazer(s) -> assigning all grazers to Pen/Pasture zone #%d',
         #unpastured, pasture.id))
 
-    -- Actuate assignment using C++ zone script
-    actuators.run_script('zone', 'assign', tostring(pasture.id), 'all', 'own', 'grazer', 'unassigned')
+    -- Actuate assignment using the DFHack 'zone' plugin command (not a Lua script)
+    actuators.run_command('zone', 'assign', tostring(pasture.id), 'all', 'own', 'grazer', 'unassigned')
     last_action = now
 end
 
