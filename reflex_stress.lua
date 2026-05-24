@@ -135,6 +135,11 @@ function run()
     local now, tick_ok = sensors.current_tick()
     if not tick_ok then now = 0 end
 
+    local alert_active, alert_ok = sensors.is_civilian_alert_active()
+    if not alert_ok then alert_active = false end
+
+    local spa_id = sensors.find_burrow_id_by_name('Respite')
+
     -- 1. Check recovery for currently quarantined units directly from the tracking list
     local pruned = false
     for unit_id, record in pairs(in_spa) do
@@ -150,6 +155,24 @@ function run()
             else
                 log.debug(string.format('STRESS MONITOR: %s still stressed (stress=%d) in spa; holding',
                     sensors.describe_unit(u), stress))
+                
+                -- Coordinate with civilian alerts to prevent pathfinding conflicts
+                if spa_id then
+                    local is_in_spa_burrow = dfhack.burrows.isAssignedUnit(spa_id, u)
+                    if alert_active then
+                        -- Temporarily suspend Respite burrow restriction during civilian alert
+                        if is_in_spa_burrow then
+                            log.warn(string.format('CIVILIAN ALERT ACTIVE: Temporarily removing stressed dwarf %s from Respite burrow to prevent pathfinding conflicts', sensors.describe_unit(u)))
+                            actuators.remove_unit_from_burrow(u, spa_id)
+                        end
+                    else
+                        -- Re-enable Respite burrow restriction when civilian alert ends
+                        if not is_in_spa_burrow then
+                            log.info(string.format('CIVILIAN ALERT DEACTIVATED: Restoring stressed dwarf %s to Respite burrow', sensors.describe_unit(u)))
+                            actuators.assign_unit_to_burrow(u, spa_id)
+                        end
+                    end
+                end
             end
         else
             -- Prune invalid/dead units from tracking
@@ -170,7 +193,6 @@ function run()
         return
     end
 
-    local spa_id = sensors.find_burrow_id_by_name('Respite')
     if not spa_id then
         log.debug('no Respite burrow defined; skipping stress management')
         return
@@ -184,7 +206,14 @@ function run()
                 sensors.describe_unit(u), entry.stress, STRESS_THRESHOLD))
             local original_labors = save_labor_state(u)
             disable_all_labors(u)
-            actuators.assign_unit_to_burrow(u, spa_id)
+            
+            -- Only assign to Respite burrow if no civilian alert is active
+            if not alert_active then
+                actuators.assign_unit_to_burrow(u, spa_id)
+            else
+                log.warn(string.format('CIVILIAN ALERT ACTIVE: Delaying Respite burrow assignment for newly stressed dwarf %s', sensors.describe_unit(u)))
+            end
+            
             in_spa[u.id] = { tick_sent = now, original_labors = original_labors }
             intervened = true
         end
