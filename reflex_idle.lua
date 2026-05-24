@@ -1,4 +1,4 @@
--- MVP reflex: announce idle citizens to the console.
+-- DwarfMind reflex: announce idle citizens to the console.
 -- This is the simplest possible Sense→Think→Act loop: sense who is
 -- idle, decide "nothing to do but log it", act by writing to the console.
 --@ module = true
@@ -26,7 +26,12 @@ function run()
         log.warn('get_idle_dwarves failed')
         return 0
     end
-    local now = sensors.current_tick()
+
+    -- BUG FIX: current_tick() returns (tick, ok). Unpack both values so that
+    -- if the tick read fails, `now` stays 0 rather than becoming nil and
+    -- causing a nil-arithmetic error in the cooldown comparison below.
+    local now, tick_ok = sensors.current_tick()
+    if not tick_ok then now = 0 end
 
     if #idle == 0 then
         log.debug('no idle citizens')
