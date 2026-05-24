@@ -11,6 +11,8 @@ local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_cemetery_slab')
 
+local json = require('json')
+
 -- Cooldown to avoid spamming the plugin enable / work orders.
 local ACTION_COOLDOWN = 6000
 local last_action = -math.huge
@@ -40,7 +42,7 @@ local function count_blank_slabs()
                     if slab_cast.description and slab_cast.description ~= "" then
                         is_blank = false
                     end
-                    
+
                     if is_blank then
                         count = count + 1
                     end
@@ -84,7 +86,7 @@ function run()
         local deficit = 3 - total_available
         log.warn(string.format('blank slab supply low: %d (threshold < 3) -> queueing %d ConstructSlab orders',
             total_available, deficit))
-        actuators.run_script('workorder', 'ConstructSlab', tostring(deficit))
+        actuators.run_script('workorder', json.encode({{job = 'ConstructSlab', amount_total = deficit}}))
         last_action = now
     end
 end

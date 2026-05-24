@@ -13,6 +13,8 @@ local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_mood_helper')
 
+local json = require('json')
+
 -- Cooldown to avoid spamming orders / slaughter marks
 local ACTION_COOLDOWN = 6000
 local last_action = -math.huge
@@ -46,7 +48,7 @@ end
 local function slaughter_excess_livestock()
     local livestock, ok = sensors.get_livestock()
     if not ok then return false end
-    
+
     -- Group by race
     local race_units = {}
     for _, u in ipairs(livestock) do
@@ -55,7 +57,7 @@ local function slaughter_excess_livestock()
         end
         table.insert(race_units[u.race], u)
     end
-    
+
     -- For each species, find the oldest safe candidate within that species only.
     -- This prevents selecting an older animal from a low-population species
     -- that would destroy its breeding pair.
@@ -121,12 +123,12 @@ local function slaughter_excess_livestock()
             end
         end
     end
-    
+
     if not best_target then
         log.warn("Need slaughterable livestock for bones/leather, but no safe candidate was found that preserves breeding pairs.")
         return false
     end
-    
+
     log.warn(string.format("Marking unit #%d (%s, race %d, sex %d) for slaughter to resolve strange mood need.",
         best_target.id, dfhack.units.getReadableName(best_target), best_target.race, best_target.sex))
     return actuators.mark_unit_for_slaughter(best_target, true)
@@ -155,7 +157,7 @@ function run()
         if u.flags1.has_mood and entry.mood_missing_categories then
             local mc = entry.mood_missing_categories
             local name = dfhack.units.getReadableName(u)
-            
+
             -- 1. Wood Log
             if mc.wood then
                 log.warn(string.format('Citizen %s is stuck in strange mood (needs wood) -> enabling autochop', name))
@@ -175,27 +177,27 @@ function run()
             -- 3. Metal
             if mc.metal then
                 log.warn(string.format('Citizen %s is stuck in strange mood (needs metal) -> queueing SmeltOre work orders', name))
-                actuators.run_script('workorder', 'SmeltOre', '5')
+                actuators.run_script('workorder', json.encode({{job = 'SmeltOre', amount_total = 5}}))
                 action_taken = true
             end
 
             -- 4. Silk, Wool, Plant Cloth
             if mc.silk or mc.wool or mc.plant_cloth then
                 local silk_thread, wool_thread, plant_thread = get_usable_thread_counts()
-                
+
                 if mc.silk and silk_thread > 0 then
                     log.warn(string.format('Citizen %s is stuck in strange mood (needs silk cloth) and we have silk thread -> queueing WeaveSilk work orders', name))
-                    actuators.run_script('workorder', 'WeaveSilk', '5')
+                    actuators.run_script('workorder', json.encode({{job = 'WeaveSilk', amount_total = 5}}))
                     action_taken = true
                 end
                 if mc.wool and wool_thread > 0 then
                     log.warn(string.format('Citizen %s is stuck in strange mood (needs wool cloth) and we have wool thread -> queueing WeaveWool work orders', name))
-                    actuators.run_script('workorder', 'WeaveWool', '5')
+                    actuators.run_script('workorder', json.encode({{job = 'WeaveWool', amount_total = 5}}))
                     action_taken = true
                 end
                 if mc.plant_cloth and plant_thread > 0 then
                     log.warn(string.format('Citizen %s is stuck in strange mood (needs plant cloth) and we have plant thread -> queueing WeaveCloth work orders', name))
-                    actuators.run_script('workorder', 'WeaveCloth', '5')
+                    actuators.run_script('workorder', json.encode({{job = 'WeaveCloth', amount_total = 5}}))
                     action_taken = true
                 end
             end

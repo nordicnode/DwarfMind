@@ -72,13 +72,7 @@ local function save_in_spa()
         return
     end
 
-    -- BUG FIX: The previous code called dfhack.persistent.get() then assigned
-    -- to entry.value without checking whether get() returned nil (which happens
-    -- on the very first save when the key doesn't exist yet).  A nil entry
-    -- caused a nil-index error.  The safe pattern is:
-    --   1. try get() first (cheapest path for existing key)
-    --   2. fall back to save{key=...} to create the record if absent
-    --   3. guard the final assignment so a failed save{} doesn't crash either
+    -- 1. Retrieve existing key or create a new persistent record.
     local entry = dfhack.persistent.get(PERSIST_KEY)
     if not entry then
         local save_ok
@@ -88,7 +82,17 @@ local function save_in_spa()
             return
         end
     end
+
+    -- 2. Write the encoded value into the record.
     entry.value = encoded
+
+    -- 3. Force an explicit disk-cache commit so the updated value is
+    --    synchronised regardless of DFHack build version.  pcall absorbs
+    --    any error so the reflex cycle continues even if the commit fails.
+    local commit_ok, commit_err = pcall(dfhack.persistent.save, entry)
+    if not commit_ok then
+        log.warn('save_in_spa: disk commit failed: ' .. tostring(commit_err))
+    end
 end
 
 -- Save which labors are currently enabled on a unit.

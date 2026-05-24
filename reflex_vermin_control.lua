@@ -96,12 +96,14 @@ function run()
                 return a.birth_year < b.birth_year
             end
             return a.birth_time < b.birth_time
-        end)            local female_excess = math.min(remaining_excess, #females - 1)
-            for i = 2, female_excess + 1 do
-                if females[i] then
-                    table.insert(to_slaughter, females[i])
-                end
+        end)
+
+        local female_excess = math.min(remaining_excess, #females - 1)
+        for i = 2, female_excess + 1 do
+            if females[i] then
+                table.insert(to_slaughter, females[i])
             end
+        end
     end
 
     if #to_slaughter > 0 then

@@ -11,6 +11,8 @@ local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_soap_chain')
 
+local json = require('json')
+
 -- Cooldown to avoid duplicate work orders.
 local ACTION_COOLDOWN = 6000
 local last_action = -math.huge
@@ -84,13 +86,13 @@ function run()
     end
 
     local make_soap_amount = math.min(soap_deficit, current_tallow)
-    
+
     -- Check if we have enough lye
     if lye_supply >= make_soap_amount then
         -- We have the lye and tallow/oil! Queue the MakeSoap job.
         log.warn(string.format('lye (%d) and tallow (%d) available -> queueing %d MakeSoap orders',
             lye_supply, current_tallow, make_soap_amount))
-        actuators.run_script('workorder', 'MakeSoap', tostring(make_soap_amount))
+        actuators.run_script('workorder', json.encode({{job = 'MakeSoap', amount_total = make_soap_amount}}))
         last_action = now
     else
         -- We need more lye!
@@ -100,7 +102,7 @@ function run()
         if ash_supply >= lye_needed then
             -- We have ash! Queue MakeLye at Ashery.
             log.warn(string.format('ash supply sufficient (%d) -> queueing %d MakeLye orders', ash_supply, lye_needed))
-            actuators.run_script('workorder', 'MakeLye', tostring(lye_needed))
+            actuators.run_script('workorder', json.encode({{job = 'MakeLye', amount_total = lye_needed}}))
             last_action = now
         else
             -- We need more ash!
@@ -113,7 +115,7 @@ function run()
             if wood > 0 then
                 local burn_amount = math.min(ash_needed, wood)
                 log.warn(string.format('wood logs available (%d) -> queueing %d MakeAsh orders', wood, burn_amount))
-                actuators.run_script('workorder', 'MakeAsh', tostring(burn_amount))
+                actuators.run_script('workorder', json.encode({{job = 'MakeAsh', amount_total = burn_amount}}))
                 last_action = now
             else
                 log.warn('CRITICAL: ash/lye/soap chain stalled because wood log stock is 0!')
