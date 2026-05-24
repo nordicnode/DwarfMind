@@ -69,6 +69,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_butcher` | Population control | Groups livestock by species and automatically marks excess adults for slaughter, prioritizing males while preserving breeding pairs. |
 | `reflex_geld` | Population control | Audits species numbers and gelds younger male livestock to prevent population explosions, keeping the oldest male for breeding. |
 | `reflex_pasture` | Grazing allocation | Automatically assigns unpastured grazing livestock to the first defined Pen/Pasture activity zone. |
+| `reflex_vermin_control` | Pet population control | Monitors adult cat populations and marks excess for slaughter while preserving a breeding pair, preventing FPS-killing cat explosions. |
 
 ### 🪦 Graves & Cemetery Management
 | Script | Category | Role & Behavior |
@@ -90,7 +91,9 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_idle` | Labor audit | Identifies and logs idle citizens to help track labor allocation gaps. |
 | `reflex_hydrology` | Cistern safety | Monitors cistern/reservoir water depth at configured sensor coordinates and automatically triggers inlet/outlet floodgates. |
 | `reflex_military_gear` | Squad logistics | Audits squad positions and automatically orders weapons, shields, breastplates, greaves, and helmets to fill deficits. |
+| `reflex_siege_ammo` | Ammunition logistics | Audits squad sizes against stockpiled/queued bolts and siege ammo, and queues `MakeAmmo` / `AssembleSiegeAmmo` work orders using the dominant available metal. |
 | `reflex_quarantine` | Werebeast quarantine | Tracks lycanthropy-infected citizens and automatically locks bedroom doors on full-moon days (25-28) of the 28-day cycle, releasing them on day 1. |
+| `reflex_justice` | Law enforcement audit | Monitors Sheriff / Captain of the Guard appointment, jailed prisoner wellness, and available justice restraints (chains/cages); logs critical warnings. |
 
 ---
 

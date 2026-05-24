@@ -37,6 +37,9 @@ local reflexGeld = reqscript('dwarfmind/reflex_geld')
 local reflexAutoContainer = reqscript('dwarfmind/reflex_auto_container')
 local reflexSoapChain = reqscript('dwarfmind/reflex_soap_chain')
 local reflexAccessSecurity = reqscript('dwarfmind/reflex_access_security')
+local reflexSiegeAmmo = reqscript('dwarfmind/reflex_siege_ammo')
+local reflexVerminControl = reqscript('dwarfmind/reflex_vermin_control')
+local reflexJustice = reqscript('dwarfmind/reflex_justice')
 
 local log = logger.for_module('ai_core')
 
@@ -193,6 +196,12 @@ function tick_slow()
         end)
         if not ok_mil then log.warn('reflex_military_gear failed: ' .. tostring(err_mil)) end
 
+        -- 13b. Ammunition and siege ammo forging management
+        local ok_ammo, err_ammo = dfhack.pcall(function()
+            reflexSiegeAmmo.run()
+        end)
+        if not ok_ammo then log.warn('reflex_siege_ammo failed: ' .. tostring(err_ammo)) end
+
         -- 14. Noble room demands and mandates management (luxury furniture)
         local ok_nob, err_nob = dfhack.pcall(function()
             reflexNobleDemands.run()
@@ -252,6 +261,18 @@ function tick_slow()
             reflexSoapChain.run()
         end)
         if not ok_soap then log.warn('reflex_soap_chain failed: ' .. tostring(err_soap)) end
+
+        -- 24. Pet population control (cat management)
+        local ok_verm, err_verm = dfhack.pcall(function()
+            reflexVerminControl.run()
+        end)
+        if not ok_verm then log.warn('reflex_vermin_control failed: ' .. tostring(err_verm)) end
+
+        -- 25. Justice and law enforcement audit
+        local ok_just, err_just = dfhack.pcall(function()
+            reflexJustice.run()
+        end)
+        if not ok_just then log.warn('reflex_justice failed: ' .. tostring(err_just)) end
 end
 
 -- ─── Scheduler control ───────────────────────────────────────────────────
@@ -290,6 +311,9 @@ local function arm()
     reflexAutoContainer.reset()
     reflexSoapChain.reset()
     reflexAccessSecurity.reset()
+    reflexSiegeAmmo.reset()
+    reflexVerminControl.reset()
+    reflexJustice.reset()
 
     repeatUtil.scheduleEvery(NAME_FAST, PERCEPTION_PERIOD, 'ticks', tick_fast)
     repeatUtil.scheduleEvery(NAME_SLOW, PLANNER_PERIOD,    'ticks', tick_slow)

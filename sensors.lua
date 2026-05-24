@@ -1343,8 +1343,189 @@ function get_spare_clothing_stock()
     end)
 end
 
+-- ─── Ammunition & Siege Ammo ───────────────────────────────────────────
+-- Returns ammo stock status:
+-- { ammo=N, siege_ammo=N, queued_ammo=N, queued_siege=N, soldiers=N }
+-- Second return value is the ok flag.
+function check_ammo_status()
+    return safe('check_ammo_status', {
+        ammo = 0, siege_ammo = 0, queued_ammo = 0, queued_siege = 0, soldiers = 0
+    }, function()
+        local ammo_count = 0
+        local siege_count = 0
+
+        local function is_valid(it)
+            local f = it.flags
+            return not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building
+        end
+
+        local other = df.global.world.items.other
+        if other.AMMO then
+            for a = 0, #other.AMMO - 1 do
+                if is_valid(other.AMMO[a]) then
+                    ammo_count = ammo_count + 1
+                end
+            end
+        end
+
+        if other.SIEGEAMMO then
+            for s = 0, #other.SIEGEAMMO - 1 do
+                if is_valid(other.SIEGEAMMO[s]) then
+                    siege_count = siege_count + 1
+                end
+            end
+        end
+
+        local queued_ammo = 0
+        local queued_siege = 0
+        local mgr_orders = df.global.world.manager_orders
+        for o = 0, #mgr_orders - 1 do
+            local jt = mgr_orders[o].job_type
+            if jt == df.job_type.MakeAmmo then
+                queued_ammo = queued_ammo + mgr_orders[o].amount_left
+            elseif jt == df.job_type.AssembleSiegeAmmo then
+                queued_siege = queued_siege + mgr_orders[o].amount_left
+            end
+        end
+
+        local soldiers = 0
+        if df.global.plotinfo and df.global.plotinfo.equipment and df.global.plotinfo.equipment.squads then
+            local squads = df.global.plotinfo.equipment.squads
+            for s = 0, #squads - 1 do
+                local positions = squads[s].positions
+                for p = 0, #positions - 1 do
+                    if positions[p].occupant > -1 then
+                        soldiers = soldiers + 1
+                    end
+                end
+            end
+        end
+
+        return {
+            ammo = ammo_count,
+            siege_ammo = siege_count,
+            queued_ammo = queued_ammo,
+            queued_siege = queued_siege,
+            soldiers = soldiers,
+        }
+    end)
+end
+
+-- ─── Pets ────────────────────────────────────────────────────────────────
+-- Returns tame pet units matching the given creature raw ID (e.g. "CAT").
+-- Each result is a raw df.unit object. Second return value is the ok flag.
+function get_pets_by_race(creature_id)
+    return safe('get_pets_by_race', {}, function()
+        local result = {}
+        local all_units = df.global.world.units.active
+        local U = dfhack.units
+        for i = 0, #all_units - 1 do
+            local u = all_units[i]
+            if U.isActive(u) and U.isAlive(u) and U.isTame(u) and U.isPet(u)
+               and not U.isBaby(u) and not U.isChild(u)
+               and not u.flags1.caged and not u.flags1.chained then
+                local ok_race, craw = pcall(function() return df.creature_raw.find(u.race) end)
+                if ok_race and craw and craw.creature_id == creature_id then
+                    table.insert(result, u)
+                end
+            end
+        end
+        return result
+    end)
+end
+
+-- ─── Justice & Law Enforcement ───────────────────────────────────────────
+-- Returns justice system status:
+-- { has_sheriff=bool, jailed_count=N, jailed_distressed=N,
+--   chain_count=N, cage_count=N, queued_chains=N, queued_cages=N }
+-- Second return value is the ok flag.
+function check_justice_status()
+    return safe('check_justice_status', {
+        has_sheriff = false, jailed_count = 0, jailed_distressed = 0,
+        chain_count = 0, cage_count = 0, queued_chains = 0, queued_cages = 0
+    }, function()
+        -- 1. Check for Sheriff or Captain of the Guard
+        local has_sheriff = false
+        local citizens = get_citizens()
+        for _, u in ipairs(citizens) do
+            local noble_positions = dfhack.units.getNoblePositions(u)
+            if noble_positions then
+                for p = 0, #noble_positions - 1 do
+                    local code = noble_positions[p].position.code
+                    if code == 'SHERIFF' or code == 'CAPTAIN_OF_THE_GUARD' then
+                        has_sheriff = true
+                        break
+                    end
+                end
+            end
+            if has_sheriff then break end
+        end
+
+        -- 2. Check jailed prisoners and their wellness
+        local jailed_count = 0
+        local jailed_distressed = 0
+        local punishments = df.global.plotinfo.punishments
+        for i = 0, #punishments - 1 do
+            local p = punishments[i]
+            if p.prison_counter > 0 then
+                jailed_count = jailed_count + 1
+                local u = df.unit.find(p.criminal)
+                if u then
+                    local thirst = u.counters2 and u.counters2.thirst_timer or 0
+                    local hunger = u.counters2 and u.counters2.hunger_timer or 0
+                    if thirst > 20000 or hunger > 30000 then
+                        jailed_distressed = jailed_distressed + 1
+                    end
+                end
+            end
+        end
+
+        -- 3. Count available restraints
+        local function count_restraint(vec)
+            if not vec then return 0 end
+            local n = 0
+            for v = 0, #vec - 1 do
+                local it = vec[v]
+                local f = it.flags
+                if not f.in_building and not f.forbid and not f.dump and not f.removed then
+                    n = n + 1
+                end
+            end
+            return n
+        end
+
+        local other = df.global.world.items.other
+        local chain_count = count_restraint(other.CHAIN)
+        local cage_count = count_restraint(other.CAGE)
+
+        local queued_chains = 0
+        local queued_cages = 0
+        -- Resolve job type enums safely; if an enum is missing the count stays 0.
+        local make_chain_ok, make_chain_jt = pcall(function() return df.job_type.MakeChain end)
+        local make_cage_ok, make_cage_jt = pcall(function() return df.job_type.MakeCage end)
+        local mgr_orders = df.global.world.manager_orders
+        for o = 0, #mgr_orders - 1 do
+            local jt = mgr_orders[o].job_type
+            if make_chain_ok and jt == make_chain_jt then
+                queued_chains = queued_chains + mgr_orders[o].amount_left
+            elseif make_cage_ok and jt == make_cage_jt then
+                queued_cages = queued_cages + mgr_orders[o].amount_left
+            end
+        end
+
+        return {
+            has_sheriff = has_sheriff,
+            jailed_count = jailed_count,
+            jailed_distressed = jailed_distressed,
+            chain_count = chain_count,
+            cage_count = cage_count,
+            queued_chains = queued_chains,
+            queued_cages = queued_cages,
+        }
+    end)
+end
+
 -- ─── Seed Watch / Kitchen Safety ─────────────────────────────────────────
--- Returns count of plump helmet spawn (seeds) in the SEEDS item vector.
 -- Second return value is the ok flag.
 function get_plump_helmet_seed_count()
     return safe('get_plump_helmet_seed_count', 0, function()
