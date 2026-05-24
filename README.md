@@ -34,21 +34,60 @@ graph TD
 
 ## ⚡ Core Reflexes & Capabilities
 
-DwarfMind coordinates a vast ecosystem of automated cognitive reflexes:
+DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes, categorized by system domain:
 
-| Component | Reflex | Role & Behavior |
+### 🛡️ Fortress Defense & Safety
+| Script | Category | Role & Behavior |
 |---|---|---|
-| **Starvation & Supply** | `reflex_production` | Monitors stock levels and auto-queues work orders for food, drink, and seeds. |
-| **Medical** | `reflex_medical` | Audits Chief Medical Dwarf office and hospital supply buffers (splints, crutches, soap, plaster, buckets). |
-| **Stress & Burrows** | `reflex_stress` | Tracks stressed citizens and automatically checks them into the **Respite Spa**, disabling labors to allow relaxation and restoring them on recovery. |
-| | `reflex_burrow` | Automatically triggers civilian panic alerts and routes citizens to burrows during hostiles. |
-| **Lunar Quarantine** | `reflex_quarantine` | Automatically tracks citizens infected with lycanthropy, calculates calendar dates based on moon phases (28-day cycle), and locks bedroom doors on days 25-28 to isolate transformations. |
-| **Burials & Graves** | `reflex_cemetery` <br> `reflex_cemetery_slab` | Monitors dead citizens, orders coffins/tombs, downcasts slab pointers, and automates memorial engraving to prevent ghost rampages. |
-| **Trade & Economy** | `reflex_trade` | Detects caravans, locates the depot, and auto-marks finished goods, gems, toys, and instruments for transport. |
-| **Farming & Forestry** | `reflex_farming` <br> `reflex_woodcutter` | Controls DFHack autofarm configurations and dynamically scales the C++ autochop plugin based on wood log stockpiles. |
-| **Workshop Clutter** | `reflex_garbage` | Identifies cluttered workshops and schedules item dumps to prevent production blocks. |
-| **Military Gear** | `reflex_military_gear` | Audits military squad sizes and automatically queues work orders for missing weapons and armor. |
-| **Hydrology Level** | `reflex_hydrology` | Monitors liquid depth at sensor tiles and flips cistern inlet/outlet gates automatically to maintain safe water levels. |
+| `reflex_defense` | Tactical defense | Auto-pulls registered defense levers (named gate, bridge, panic, entrance, etc.) when hostile units are detected. |
+| `reflex_burrow` | Civilian safety | Restricts civilians to the "Safety" or "Panic" burrow during invasions; automatically lifts the restriction 600 ticks after the map is clear. |
+
+### 🩺 Health, Stress & Wellness
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_distress` | Wellness monitoring | Audits citizen health indicators (hunger, thirst, sleepiness, pain, bleeding, hospitalization status, strange moods) and logs warnings. |
+| `reflex_stress` | Mental health | Safely sends stressed citizens to the "Respite" spa burrow and suspends labors; restores original labors upon recovery. |
+| `reflex_medical` | Medical logistics | Audits Chief Medical Dwarf assignee status and hospital supply buffers (splints, crutches, soap, plaster, buckets) to queue production. |
+| `reflex_clothing` | Hygiene logistics | Ensures the C++ `tailor` plugin is active to automatically replace tattered, worn clothing and manage textile stock. |
+
+### 🛠️ Industry, Farming & Resources
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_production` | Basic supplies | Audits food, drink, and seed counts; queues work orders for brewing and meal preparation. |
+| `reflex_seedwatch` | Farming safety | Bans kitchen cooking of plump helmets when seed counts drop below 20; lifts the ban when seeds recover above 50. |
+| `reflex_farming` | Crop management | Automatically enables and configures C++ `autofarm` crop thresholds for all underground seeds. |
+| `reflex_woodcutter` | Forestry control | Dynamically enables and configures C++ `autochop` to cut logs when wood is low (<15) and suspends it when wood is healthy (>40) to prevent deforestation. |
+| `reflex_beds` | Citizen housing | Monitors bedroom furniture counts and automatically queues `ConstructBed` work orders to meet housing deficits. |
+| `reflex_mood_helper` | Strange moods | Automatically solves strange mood material bottlenecks by enabling autochop (wood), slaughtering excess animals (bone/leather), smelting ore (metal), or weaving thread (cloth). |
+
+### 🐑 Livestock & Husbandry
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_butcher` | Population control | Groups livestock by species and automatically marks excess adults for slaughter, prioritizing males while preserving breeding pairs. |
+| `reflex_geld` | Population control | Audits species numbers and gelds younger male livestock to prevent population explosions, keeping the oldest male for breeding. |
+| `reflex_pasture` | Grazing allocation | Automatically assigns unpastured grazing livestock to the first defined Pen/Pasture activity zone. |
+
+### 🪦 Graves & Cemetery Management
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_cemetery` | Funeral logistics | Audits dead and unburied citizen counts; queues `ConstructCoffin` work orders and runs the `burial` zoner script. |
+| `reflex_cemetery_slab` | Memorial logistics | Monitors blank stone slabs, enables the `autoslab` plugin, and orders slab crafting to prevent ghost rampages. |
+| `reflex_cleanup` | Fortress hygiene | Claims forbidden rotting carcasses and remains inside the subterranean fortress to prevent miasma. |
+
+### 💰 Economy, Noble Demands & Clutter
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_trade` | Caravan logistics | Detects caravans AtDepot and automatically marks finished goods, toys, instruments, and cut gems for trade. |
+| `reflex_noble_demands` | Room & mandate audit | Satisfies Appointed Noble room and luxury furniture requirements; auto-queues work orders for mandated items. |
+| `reflex_garbage` | Workshop throughput | Identifies highly cluttered workshops (>8 items) and automatically marks finished goods for dumping to prevent production stalls. |
+
+### ⚙️ Services & Infrastructure Control
+| Script | Category | Role & Behavior |
+|---|---|---|
+| `reflex_idle` | Labor audit | Identifies and logs idle citizens to help track labor allocation gaps. |
+| `reflex_hydrology` | Cistern safety | Monitors cistern/reservoir water depth at configured sensor coordinates and automatically triggers inlet/outlet floodgates. |
+| `reflex_military_gear` | Squad logistics | Audits squad positions and automatically orders weapons, shields, breastplates, greaves, and helmets to fill deficits. |
+| `reflex_quarantine` | Werebeast quarantine | Tracks lycanthropy-infected citizens and automatically locks bedroom doors on full-moon days (25-28) of the 28-day cycle, releasing them on day 1. |
 
 ---
 
