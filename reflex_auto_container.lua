@@ -44,11 +44,17 @@ local function count_empty_containers()
             local f = it.flags
             if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
                 local is_pot = false
-                pcall(function()
-                    if it.subtype and it.subtype.id == 'ITEM_TOOL_LARGE_POT' then
-                        is_pot = true
-                    end
-                end)
+                -- Use the vmethod it:getSubtype() -> int16 raws index.
+                -- it.subtype is not a plain field on the base df.item type.
+                local sub_idx = it:getSubtype()
+                if sub_idx and sub_idx >= 0 then
+                    pcall(function()
+                        local tool_def = df.global.world.raws.itemdefs.tools[sub_idx]
+                        if tool_def and tool_def.id == 'ITEM_TOOL_LARGE_POT' then
+                            is_pot = true
+                        end
+                    end)
+                end
                 if is_pot then
                     local contents = dfhack.items.getContainedItems(it)
                     if contents and #contents == 0 then
