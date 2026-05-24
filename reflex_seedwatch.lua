@@ -27,7 +27,7 @@ local function get_persistent_ban()
 end
 
 local function set_persistent_ban(val)
-    local entry = dfhack.persistent.get('dwarfmind/seedwatch_ban') or dfhack.persistent.save('dwarfmind/seedwatch_ban')
+    local entry = dfhack.persistent.get('dwarfmind/seedwatch_ban') or dfhack.persistent.save({key = 'dwarfmind/seedwatch_ban'})
     entry.value = tostring(val)
 end
 
