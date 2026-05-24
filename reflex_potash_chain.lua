@@ -20,7 +20,35 @@ local last_action     = -math.huge
 local POTASH_TARGET = 5   -- Enough potash to fertilize a growing season.
 local ASH_FLOOR     = 3   -- Reserve ash so soap chain is not fully starved.
 
--- Count items by token in world.items.other sub-vector.
+-- Count actual potash items using material-token validation.
+-- FIX: the previous implementation used count_items_other('POWDER_MISC') which
+-- counted *all* powder items (sand, lye, ash, gypsum plaster, flour, sugar,
+-- dye powders, etc.) as potash, inflating the supply reading and causing the
+-- reflex to silently skip MakePotash orders.  We now decode each item's
+-- material info and match only INORGANIC:POTASH.
+local function count_actual_potash()
+    local list = df.global.world.items.other.POWDER_MISC
+    if not list then return 0 end
+    local count = 0
+    for i = 0, #list - 1 do
+        local item = list[i]
+        if item and item.flags
+            and not item.flags.forbid
+            and not item.flags.dump
+            and not item.flags.in_inventory
+        then
+            -- dfhack.matinfo.decode returns a table with a 'token' field of the
+            -- form 'CATEGORY:NAME' (e.g. 'INORGANIC:POTASH').
+            local mat_info = dfhack.matinfo.decode(item)
+            if mat_info and mat_info.token == 'INORGANIC:POTASH' then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+-- Count items by token in world.items.other sub-vector (used for ash).
 local function count_items_other(token)
     local list = df.global.world.items.other[token]
     if not list then return 0 end
@@ -78,8 +106,8 @@ function run()
         return
     end
 
-    -- 1. Count potash stock + queued orders.
-    local current_potash = count_items_other('POWDER_MISC')  -- Potash is POWDER_MISC subtype.
+    -- 1. Count potash stock using exact material-token matching.
+    local current_potash = count_actual_potash()
     local queued_potash  = count_queued_orders('MakePotash')
     local potash_supply  = current_potash + queued_potash
 

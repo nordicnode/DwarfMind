@@ -16,31 +16,38 @@ local json = require('json')
 local ACTION_COOLDOWN = 6000
 local last_action     = -math.huge
 
-local GOBLET_TARGET  = 10
+local GOBLET_TARGET   = 10
 -- Maximum number of mugs to order per cycle to stay within tick order budget.
 local MAX_ORDER_BATCH = 5
 
 -- Count free (on-ground, not forbidden/dumped/in-inventory) goblets and mugs.
+-- FIX: entire GOBLET vector traversal is now inside the pcall body so that a
+-- stale/nil pointer anywhere in the C++ sub-vector fails gracefully instead of
+-- propagating a hard crash.  (Previously the pcall wrapped an empty anonymous
+-- function and the scan ran completely unprotected outside it.)
 local function count_free_goblets()
-    local ok, err = pcall(function()
-        -- sensors.is_fort_loaded() guard is checked by caller.
-    end)
     local count = 0
-    local goblets = df.global.world.items.other.GOBLET
-    for i = 0, #goblets - 1 do
-        local item = goblets[i]
-        -- Nil-guard every pointer step (Rule C).
-        if item and item.flags then
-            local f = item.flags
-            if f.on_ground
-                and not f.forbid
-                and not f.dump
-                and not f.in_inventory
-                and not f.owned
-            then
-                count = count + 1
+    local ok, err = pcall(function()
+        local goblets = df.global.world.items.other.GOBLET
+        if not goblets then return end
+        for i = 0, #goblets - 1 do
+            local item = goblets[i]
+            -- Nil-guard every pointer step (Rule C).
+            if item and item.flags then
+                local f = item.flags
+                if f.on_ground
+                    and not f.forbid
+                    and not f.dump
+                    and not f.in_inventory
+                    and not f.owned
+                then
+                    count = count + 1
+                end
             end
         end
+    end)
+    if not ok then
+        log.error('count_free_goblets failed: ' .. tostring(err))
     end
     return count
 end
@@ -82,7 +89,7 @@ function run()
         return
     end
 
-    local deficit = GOBLET_TARGET - effective
+    local deficit      = GOBLET_TARGET - effective
     local order_amount = math.min(deficit, MAX_ORDER_BATCH)
 
     log.warn(string.format(
@@ -93,8 +100,8 @@ function run()
     -- Prefer stone mugs (MakeGoblet maps to the stone/wood goblet reaction).
     -- material_category restricts to non-metal to avoid competing with military gear.
     actuators.run_script('workorder', json.encode({{
-        job              = 'MakeGoblet',
-        amount_total     = order_amount,
+        job               = 'MakeGoblet',
+        amount_total      = order_amount,
         material_category = { stone = true, wood = true },
     }}))
 
