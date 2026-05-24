@@ -13,6 +13,7 @@ local reflexIdle   = reqscript('dwarfmind/reflex_idle')
 local reflexButcher = reqscript('dwarfmind/reflex_butcher')
 local reflexDistress = reqscript('dwarfmind/reflex_distress')
 local reflexDefense = reqscript('dwarfmind/reflex_defense')
+local reflexSquadAlert = reqscript('dwarfmind/reflex_squad_alert')
 local reflexProduction = reqscript('dwarfmind/reflex_production')
 local reflexCleanup = reqscript('dwarfmind/reflex_cleanup')
 local reflexBeds = reqscript('dwarfmind/reflex_beds')
@@ -28,6 +29,7 @@ local reflexNobleDemands = reqscript('dwarfmind/reflex_noble_demands')
 local reflexGarbage = reqscript('dwarfmind/reflex_garbage')
 local reflexMilitaryGear = reqscript('dwarfmind/reflex_military_gear')
 local reflexStress = reqscript('dwarfmind/reflex_stress')
+local reflexTantrumWatch = reqscript('dwarfmind/reflex_tantrum_watch')
 local reflexHydrology = reqscript('dwarfmind/reflex_hydrology')
 local reflexClothing = reqscript('dwarfmind/reflex_clothing')
 local reflexSeedwatch = reqscript('dwarfmind/reflex_seedwatch')
@@ -40,6 +42,7 @@ local reflexAccessSecurity = reqscript('dwarfmind/reflex_access_security')
 local reflexSiegeAmmo = reqscript('dwarfmind/reflex_siege_ammo')
 local reflexVerminControl = reqscript('dwarfmind/reflex_vermin_control')
 local reflexJustice = reqscript('dwarfmind/reflex_justice')
+local reflexInfirmarySupply = reqscript('dwarfmind/reflex_infirmary_supply')
 
 local log = logger.for_module('ai_core')
 
@@ -86,6 +89,13 @@ function tick_fast()
     end)
     if not ok_def then log.err('tick_fast reflexDefense failed: ' .. tostring(err_def)) end
 
+    -- Squad activation runs in fast loop so squads are called to arms in the
+    -- same tick that levers are pulled (both react to get_hostiles()).
+    local ok_sqd, err_sqd = dfhack.pcall(function()
+        reflexSquadAlert.run()
+    end)
+    if not ok_sqd then log.err('tick_fast reflexSquadAlert failed: ' .. tostring(err_sqd)) end
+
     local ok_bur, err_bur = dfhack.pcall(function()
         reflexBurrow.run()
     end)
@@ -111,58 +121,64 @@ local function init_slow_reflexes()
     SLOW_REFLEXES = {
         -- === High-priority Life & Death Reflexes ===
         -- 1.  Strange mood assistant (crucial to solve/satisfy mood requests quickly)
-        { reflexMoodHelper,     'mood_helper',     log.err  },
+        { reflexMoodHelper,     'mood_helper',      log.err  },
         -- 2.  Medical supplies (critical - health/life safety)
-        { reflexMedical,        'medical',         log.err  },
-        -- 3.  Food & Drink Production (critical — prevents starvation)
-        { reflexProduction,     'production',      log.warn },
-        -- 4.  Cemetery / coffin deficits (critical - miasma/dignity/ghosts)
-        { reflexCemetery,       'cemetery',        log.err  },
-        -- 5.  Cemetery slab engraving management (critical - prevents ghost rampages)
-        { reflexCemeterySlab,   'cemetery_slab',   log.err  },
-        -- 6.  Werebeast lunar quarantine (critical - prevents fort infection wipes)
-        { reflexQuarantine,     'quarantine',      log.err  },
-        -- 7.  Stress spa / mental health intervention (critical - prevents tantrums)
-        { reflexStress,         'stress',          log.err  },
+        { reflexMedical,        'medical',          log.err  },
+        -- 3.  Infirmary surgery supplies: sutures, crutches, plaster, buckets
+        --     (placed directly after medical — these items block active treatment)
+        { reflexInfirmarySupply,'infirmary_supply', log.err  },
+        -- 4.  Food & Drink Production (critical — prevents starvation)
+        { reflexProduction,     'production',       log.warn },
+        -- 5.  Cemetery / coffin deficits (critical - miasma/dignity/ghosts)
+        { reflexCemetery,       'cemetery',         log.err  },
+        -- 6.  Cemetery slab engraving management (critical - prevents ghost rampages)
+        { reflexCemeterySlab,   'cemetery_slab',    log.err  },
+        -- 7.  Werebeast lunar quarantine (critical - prevents fort infection wipes)
+        { reflexQuarantine,     'quarantine',       log.err  },
+        -- 8.  Stress spa / mental health intervention (critical - prevents tantrums)
+        { reflexStress,         'stress',           log.err  },
+        -- 9.  Tantrum-watch: early warning at lower stress floor + bad-thought check
+        --     (runs after reflex_stress so spa assignments take priority)
+        { reflexTantrumWatch,   'tantrum_watch',    log.warn },
         -- === Support / Economic Reflexes ===
-        -- 8.  Farming / crop rotation management
-        { reflexFarming,        'farming',         log.warn },
-        -- 9.  Seed watch / plump helmet kitchen safety
-        { reflexSeedwatch,      'seedwatch',       log.warn },
-        -- 10. Hydrology / cistern water level management
-        { reflexHydrology,      'hydrology',       log.warn },
-        -- 11. Bedroom deficits (important - citizen happiness)
-        { reflexBeds,           'beds',            log.warn },
-        -- 12. Clothing replacement / hygiene logistics
-        { reflexClothing,       'clothing',        log.warn },
-        -- 13. Military weapons and armor forging management
-        { reflexMilitaryGear,   'military_gear',   log.warn },
-        -- 14. Ammunition and siege ammo forging management
-        { reflexSiegeAmmo,      'siege_ammo',      log.warn },
-        -- 15. Noble room demands and mandates management (luxury furniture)
-        { reflexNobleDemands,   'noble_demands',   log.warn },
-        -- 16. Livestock butchering (non-critical population management)
-        { reflexButcher,        'butcher',         log.warn },
-        -- 17. Livestock gelding population control
-        { reflexGeld,           'geld',            log.warn },
-        -- 18. Trade depot management
-        { reflexTrade,          'trade',           log.warn },
-        -- 19. Woodcutter/autochop management
-        { reflexWoodcutter,     'woodcutter',      log.warn },
-        -- 20. Pasture assignment management
-        { reflexPasture,        'pasture',         log.warn },
-        -- 21. Workshop clutter and garbage management
-        { reflexGarbage,        'garbage',         log.warn },
-        -- 22. Cleanup: claim forbidden rotting items to prevent miasma
-        { reflexCleanup,        'cleanup',         log.warn },
-        -- 23. Auto container management (barrels/pots)
-        { reflexAutoContainer,  'auto_container',  log.warn },
-        -- 24. Soap production chain coordination
-        { reflexSoapChain,      'soap_chain',      log.warn },
-        -- 25. Pet population control (cat management)
-        { reflexVerminControl,  'vermin_control',  log.warn },
-        -- 26. Justice and law enforcement audit
-        { reflexJustice,        'justice',         log.warn },
+        -- 10. Farming / crop rotation management
+        { reflexFarming,        'farming',          log.warn },
+        -- 11. Seed watch / plump helmet kitchen safety
+        { reflexSeedwatch,      'seedwatch',        log.warn },
+        -- 12. Hydrology / cistern water level management
+        { reflexHydrology,      'hydrology',        log.warn },
+        -- 13. Bedroom deficits (important - citizen happiness)
+        { reflexBeds,           'beds',             log.warn },
+        -- 14. Clothing replacement / hygiene logistics
+        { reflexClothing,       'clothing',         log.warn },
+        -- 15. Military weapons and armor forging management
+        { reflexMilitaryGear,   'military_gear',    log.warn },
+        -- 16. Ammunition and siege ammo forging management
+        { reflexSiegeAmmo,      'siege_ammo',       log.warn },
+        -- 17. Noble room demands and mandates management (luxury furniture)
+        { reflexNobleDemands,   'noble_demands',    log.warn },
+        -- 18. Livestock butchering (non-critical population management)
+        { reflexButcher,        'butcher',          log.warn },
+        -- 19. Livestock gelding population control
+        { reflexGeld,           'geld',             log.warn },
+        -- 20. Trade depot management
+        { reflexTrade,          'trade',            log.warn },
+        -- 21. Woodcutter/autochop management
+        { reflexWoodcutter,     'woodcutter',       log.warn },
+        -- 22. Pasture assignment management
+        { reflexPasture,        'pasture',          log.warn },
+        -- 23. Workshop clutter and garbage management
+        { reflexGarbage,        'garbage',          log.warn },
+        -- 24. Cleanup: claim forbidden rotting items to prevent miasma
+        { reflexCleanup,        'cleanup',          log.warn },
+        -- 25. Auto container management (barrels/pots)
+        { reflexAutoContainer,  'auto_container',   log.warn },
+        -- 26. Soap production chain coordination
+        { reflexSoapChain,      'soap_chain',       log.warn },
+        -- 27. Pet population control (cat management)
+        { reflexVerminControl,  'vermin_control',   log.warn },
+        -- 28. Justice and law enforcement audit
+        { reflexJustice,        'justice',          log.warn },
     }
 end
 
@@ -218,6 +234,7 @@ local function arm()
     reflexIdle.reset()
     reflexDistress.reset()
     reflexDefense.reset()
+    reflexSquadAlert.reset()
     reflexProduction.reset()
     reflexCleanup.reset()
     reflexBeds.reset()
@@ -234,6 +251,7 @@ local function arm()
     reflexButcher.reset()
     reflexQuarantine.reset()
     reflexStress.reset()
+    reflexTantrumWatch.reset()
     reflexClothing.reset()
     reflexSeedwatch.reset()
     reflexHydrology.reset()
@@ -246,6 +264,7 @@ local function arm()
     reflexSiegeAmmo.reset()
     reflexVerminControl.reset()
     reflexJustice.reset()
+    reflexInfirmarySupply.reset()
 
     repeatUtil.scheduleEvery(NAME_FAST, PERCEPTION_PERIOD, 'ticks', tick_fast)
     repeatUtil.scheduleEvery(NAME_SLOW, PLANNER_PERIOD,    'ticks', tick_slow)
