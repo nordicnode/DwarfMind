@@ -1,6 +1,11 @@
 -- DwarfMind reflex: monitor citizen distress.
 -- Periodically checks citizen wellness indicators (hunger, thirst, sleep, injuries, strange moods).
 -- Announces issues in the console log with name, symptoms, and coordinates.
+--
+-- NOTE: The cooldown-tracker pattern used here (last_announce table keyed by
+-- unit_id, with hist_id+birth_year disambiguation for ID recycling) is shared
+-- with reflex_idle. Both modules keep their own table for now; if a third
+-- consumer appears, extract to a utils.lua cooldown_tracker helper.
 --@ module = true
 
 local _ENV = mkmodule('dwarfmind/reflex_distress')
@@ -46,7 +51,7 @@ function run()
         local u = entry.unit
         local record = last_announce[u.id]
 
-        -- Catch ID recycling
+        -- Catch ID recycling: discard stale entry if hist_id or birth_year changed.
         if record and (record.hist_id ~= u.hist_figure_id or record.birth ~= u.birth_year) then
             record = nil
         end
