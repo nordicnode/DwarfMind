@@ -86,7 +86,7 @@ silently break the chain).
 
 ## Slow-loop dispatch pattern
 
-`tick_slow` uses a **table-driven dispatch** rather than 26 hand-written
+`tick_slow` uses a **table-driven dispatch** rather than hand-written
 `pcall` blocks.  Each entry in `SLOW_REFLEXES` is:
 
 ```lua
@@ -109,16 +109,21 @@ end
 `log.err` entries are life-critical (quarantine, medical, etc.);
 `log.warn` entries are non-critical (trade, woodcutter, etc.).
 
+The current `SLOW_REFLEXES` table has **28 entries** in priority order
+(life-critical first, economic last).
+
 ## Burrow ownership arbitration
 
 Multiple reflexes can assign/remove a unit from a burrow, which creates
 a potential conflict:
 
-| Reflex           | Burrow used     | When active                      |
-|------------------|-----------------|----------------------------------|
-| `reflex_stress`  | `Respite`       | While unit stress > threshold    |
-| `reflex_burrow`  | `Safety/Panic`  | During civilian alert            |
-| `reflex_quarantine` | `Safety/Panic` | Werebeast fallback (no bedroom) |
+| Reflex              | Burrow used     | When active                           |
+|---------------------|-----------------|---------------------------------------|
+| `reflex_stress`     | `Respite`       | While unit stress > threshold         |
+| `reflex_burrow`     | `Safety/Panic`  | During civilian alert                 |
+| `reflex_quarantine` | `Safety/Panic`  | Werebeast fallback (no bedroom)       |
+| `reflex_squad_alert`| _none_          | Activates squads only; no burrow writes|
+| `reflex_tantrum_watch`| _none_        | Adds thoughts only; no burrow writes  |
 
 `reflex_stress` already detects an active civilian alert and temporarily
 removes the unit from `Respite` to avoid pathfinding conflicts.
@@ -162,16 +167,19 @@ end
 | [dwarfmind/reflex_idle.lua](reflex_idle.lua) | Announces idle citizens via the logger. |
 | [dwarfmind/reflex_distress.lua](reflex_distress.lua) | Monitors citizen health, starvation, and strange mood blocks. |
 | [dwarfmind/reflex_defense.lua](reflex_defense.lua) | Auto-pulls defense levers (word-boundary matched) when hostiles appear. |
+| [dwarfmind/reflex_squad_alert.lua](reflex_squad_alert.lua) | Activates fort-defense squads by name keyword when hostiles appear; auto-deactivates when map clears. |
 | [dwarfmind/reflex_burrow.lua](reflex_burrow.lua) | Triggers civilian panic alerts and routes citizens to Safety burrow. |
 | [dwarfmind/reflex_access_security.lua](reflex_access_security.lua) | Door/hatch access control based on zone security rules. |
 | **Slow-loop reflexes (every 1 200 t = 1 dwarf day)** | |
 | [dwarfmind/reflex_mood_helper.lua](reflex_mood_helper.lua) | Strange mood assistant — prioritises workshop and material acquisition. |
 | [dwarfmind/reflex_medical.lua](reflex_medical.lua) | Audits Chief Medical Dwarf office and hospital supply buffers. |
+| [dwarfmind/reflex_infirmary_supply.lua](reflex_infirmary_supply.lua) | Monitors hospital zones for critically low surgery supplies: sutures, crutches, plaster powder, buckets. |
 | [dwarfmind/reflex_production.lua](reflex_production.lua) | Monitors food/drink levels and auto-queues work orders. |
 | [dwarfmind/reflex_cemetery.lua](reflex_cemetery.lua) | Monitors dead citizens, builds coffins, and auto-zones graves. |
 | [dwarfmind/reflex_cemetery_slab.lua](reflex_cemetery_slab.lua) | Engraves slabs for missing citizens to prevent ghost rampages. |
 | [dwarfmind/reflex_quarantine.lua](reflex_quarantine.lua) | Werebeast bedroom door quarantine during full moon (days 25–28); Safety burrow fallback when no bedroom exists. |
 | [dwarfmind/reflex_stress.lua](reflex_stress.lua) | Stress spa / mental health intervention; persists recovery state across saves. |
+| [dwarfmind/reflex_tantrum_watch.lua](reflex_tantrum_watch.lua) | Early-warning tantrum detection at a lower stress floor (2 500) with bad-thought inspection and fine-meal consolation. |
 | [dwarfmind/reflex_farming.lua](reflex_farming.lua) | Ensures DFHack autofarm plugin is enabled and configured. |
 | [dwarfmind/reflex_seedwatch.lua](reflex_seedwatch.lua) | Seed watch — protects plump helmet seeds from the kitchen. |
 | [dwarfmind/reflex_hydrology.lua](reflex_hydrology.lua) | Cistern water level management. |

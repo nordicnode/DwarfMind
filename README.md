@@ -40,6 +40,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | Script | Category | Role & Behavior |
 |---|---|---|
 | `reflex_defense` | Tactical defense | Auto-pulls registered defense levers when hostile units are detected. Lever names are matched using word-boundary rules (e.g. `main_gate` matches, `floodgate` does not) to prevent false positives on non-defense levers. |
+| `reflex_squad_alert` | Tactical defense | Activates fort-defense squads by name when hostiles are detected. Scans all squads for names matching keywords (`defend`, `guard`, `militia`, `ranger`, `patrol`, `watch`) and calls `dfhack.military.activateSquad()`. Automatically stands squads down and deactivates them when the map clears. Runs in the fast loop alongside `reflex_defense`. |
 | `reflex_burrow` | Civilian safety | Restricts civilians to the "Safety" or "Panic" burrow during invasions; automatically lifts the restriction 600 ticks after the map is clear. |
 | `reflex_access_security` | Tactical defense | Manages security gate/drawbridge states: seals the fort during invasions, and opens gates for incoming caravans in peacetime. |
 
@@ -48,7 +49,9 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 |---|---|---|
 | `reflex_distress` | Wellness monitoring | Audits citizen health indicators (hunger, thirst, sleepiness, pain, bleeding, hospitalization status, strange moods) and logs warnings. |
 | `reflex_stress` | Mental health | Safely sends stressed citizens to the "Respite" spa burrow and suspends labors; restores original labors upon recovery. Spa membership is persisted across save/load cycles so dwarves don't slip through on reload. Temporarily releases dwarves from Respite during civilian alerts to prevent pathfinding conflicts. |
+| `reflex_tantrum_watch` | Mental health | Early-warning tantrum detection independent of raw stress score. Monitors citizens at a lower stress floor (2 500) and inspects bad-thought lists for high-weight persistent negatives (witnessed death, lost loved one, tribute demand). Queues a fine-meal consolation thought and logs a targeted warning per at-risk citizen. Catches dwarves actively tantrumming or going berserk for immediate escalation. |
 | `reflex_medical` | Medical logistics | Audits Chief Medical Dwarf assignee status and hospital supply buffers (splints, crutches, soap, plaster, buckets) to queue production. |
+| `reflex_infirmary_supply` | Medical logistics | Monitors hospital zones specifically for the four surgery-critical supplies most often absent: sutures (thread), crutches, plaster powder, and buckets. Counts items inside every hospital zone bounding box and queues targeted work orders when any supply falls below its minimum threshold. Per-supply cooldown prevents order flooding. |
 | `reflex_soap_chain` | Medical logistics | Coordinates the ash, lye, and soap production chain to maintain a buffer of 10 soaps in the hospital. |
 | `reflex_clothing` | Hygiene logistics | Ensures the C++ `tailor` plugin is active to automatically replace tattered, worn clothing and manage textile stock. |
 
