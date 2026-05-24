@@ -39,7 +39,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 ### 🛡️ Fortress Defense & Safety
 | Script | Category | Role & Behavior |
 |---|---|---|
-| `reflex_defense` | Tactical defense | Auto-pulls registered defense levers (named gate, bridge, panic, entrance, etc.) when hostile units are detected. |
+| `reflex_defense` | Tactical defense | Auto-pulls registered defense levers when hostile units are detected. Lever names are matched using word-boundary rules (e.g. `main_gate` matches, `floodgate` does not) to prevent false positives on non-defense levers. |
 | `reflex_burrow` | Civilian safety | Restricts civilians to the "Safety" or "Panic" burrow during invasions; automatically lifts the restriction 600 ticks after the map is clear. |
 | `reflex_access_security` | Tactical defense | Manages security gate/drawbridge states: seals the fort during invasions, and opens gates for incoming caravans in peacetime. |
 
@@ -47,7 +47,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | Script | Category | Role & Behavior |
 |---|---|---|
 | `reflex_distress` | Wellness monitoring | Audits citizen health indicators (hunger, thirst, sleepiness, pain, bleeding, hospitalization status, strange moods) and logs warnings. |
-| `reflex_stress` | Mental health | Safely sends stressed citizens to the "Respite" spa burrow and suspends labors; restores original labors upon recovery. |
+| `reflex_stress` | Mental health | Safely sends stressed citizens to the "Respite" spa burrow and suspends labors; restores original labors upon recovery. Spa membership is persisted across save/load cycles so dwarves don't slip through on reload. Temporarily releases dwarves from Respite during civilian alerts to prevent pathfinding conflicts. |
 | `reflex_medical` | Medical logistics | Audits Chief Medical Dwarf assignee status and hospital supply buffers (splints, crutches, soap, plaster, buckets) to queue production. |
 | `reflex_soap_chain` | Medical logistics | Coordinates the ash, lye, and soap production chain to maintain a buffer of 10 soaps in the hospital. |
 | `reflex_clothing` | Hygiene logistics | Ensures the C++ `tailor` plugin is active to automatically replace tattered, worn clothing and manage textile stock. |
@@ -92,7 +92,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_hydrology` | Cistern safety | Monitors cistern/reservoir water depth at configured sensor coordinates and automatically triggers inlet/outlet floodgates. |
 | `reflex_military_gear` | Squad logistics | Audits squad positions and automatically orders weapons, shields, breastplates, greaves, and helmets to fill deficits. |
 | `reflex_siege_ammo` | Ammunition logistics | Audits squad sizes against stockpiled/queued bolts and siege ammo, and queues `MakeAmmo` / `AssembleSiegeAmmo` work orders using the dominant available metal. |
-| `reflex_quarantine` | Werebeast quarantine | Tracks lycanthropy-infected citizens and automatically locks bedroom doors on full-moon days (25-28) of the 28-day cycle, releasing them on day 1. |
+| `reflex_quarantine` | Werebeast quarantine | Tracks lycanthropy-infected citizens and automatically locks their bedroom doors on full-moon days (25–28) of the 28-day cycle, releasing them on day 1. If the infected citizen has no assigned bedroom, falls back to assigning them to the `Safety`/`Panic` burrow for containment and logs a loud warning to build a bedroom. |
 | `reflex_justice` | Law enforcement audit | Monitors Sheriff / Captain of the Guard appointment, jailed prisoner wellness, and available justice restraints (chains/cages); logs critical warnings. |
 
 ---
@@ -155,4 +155,4 @@ Every behavior in DwarfMind is a self-contained module. To create a new reflex:
 
    return _ENV
    ```
-3. Register the new reflex import at the top of [dwarfmind/ai_core.lua](file:///home/mikey/Games/DwarfFortress/hack/scripts/dwarfmind/ai_core.lua) and include it in the execution loop inside `tick_slow()` or `tick_fast()`.
+3. Register the new reflex import at the top of [`dwarfmind/ai_core.lua`](ai_core.lua) and add a single entry to the `SLOW_REFLEXES` table (for slow-loop reflexes) or a `dfhack.pcall` block in `tick_fast()` (for fast-loop reflexes). See [ARCHITECTURE.md](ARCHITECTURE.md) for the dispatch pattern and the `reset()` contract.
