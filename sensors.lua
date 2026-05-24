@@ -513,7 +513,55 @@ function get_levers()
                         break
                     end
                 end
-                table.insert(levers, { building = b, name = name, has_pull_job = has_pull })
+
+                -- Determine state of linked building(s)
+                local state = nil
+                local links = b.linked_mechanisms
+                if links and #links > 0 then
+                    for m_idx = 0, #links - 1 do
+                        local m = links[m_idx]
+                        local tref = dfhack.items.getGeneralRef(m, df.general_ref_type.BUILDING_HOLDER)
+                        if tref then
+                            local tg = tref:getBuilding()
+                            if tg then
+                                local btype = tg:getType()
+                                if btype == df.building_type.Bridge then
+                                    if tg.gate_flags.raised then
+                                        state = "closed"
+                                    elseif tg.gate_flags.raising then
+                                        state = "closing"
+                                    elseif tg.gate_flags.lowering then
+                                        state = "opening"
+                                    else
+                                        state = "open"
+                                    end
+                                elseif btype == df.building_type.Weapon then
+                                    if tg.gate_flags.retracted then
+                                        state = "closed"
+                                    else
+                                        state = "open"
+                                    end
+                                else
+                                    local ok, closed = pcall(function() return tg.gate_flags.closed end)
+                                    if ok then
+                                        if closed then
+                                            state = "closed"
+                                        elseif tg.gate_flags.closing then
+                                            state = "closing"
+                                        elseif tg.gate_flags.opening then
+                                            state = "opening"
+                                        else
+                                            state = "open"
+                                        end
+                                    end
+                                end
+                                if state then break end
+                            end
+                        end
+                    end
+                end
+
+                table.insert(levers, { building = b, name = name, has_pull_job = has_pull, state = state })
             end
         end
         return levers
@@ -1372,6 +1420,93 @@ function get_metal_bars_stock()
             end
         end
         return stock
+    end)
+end
+
+-- Returns counts of ash bars in stock.
+-- Second return value is the ok flag.
+function get_ash_count()
+    return safe('get_ash_count', 0, function()
+        local count = 0
+        local other = df.global.world.items.other
+        if other.BAR then
+            for b = 0, #other.BAR - 1 do
+                local it = other.BAR[b]
+                local f = it.flags
+                if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
+                    if it:getMaterial() == df.builtin_mats.ASH then
+                        count = count + (it.stack_size > 0 and it.stack_size or 1)
+                    end
+                end
+            end
+        end
+        return count
+    end)
+end
+
+-- Returns counts of lye in stock (typically in buckets).
+-- Second return value is the ok flag.
+function get_lye_count()
+    return safe('get_lye_count', 0, function()
+        local count = 0
+        local other = df.global.world.items.other
+        if other.LIQUID_MISC then
+            for i = 0, #other.LIQUID_MISC - 1 do
+                local it = other.LIQUID_MISC[i]
+                local f = it.flags
+                if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
+                    if it:getMaterial() == df.builtin_mats.LYE then
+                        count = count + (it.stack_size > 0 and it.stack_size or 1)
+                    end
+                end
+            end
+        end
+        return count
+    end)
+end
+
+-- Returns counts of tallow (animal fats) and oil (vegetable oils) in stock.
+-- Second return value is the ok flag.
+function get_tallow_oil_count()
+    return safe('get_tallow_oil_count', 0, function()
+        local count = 0
+        local other = df.global.world.items.other
+        
+        -- Count globs (tallow is a glob)
+        if other.GLOB then
+            for i = 0, #other.GLOB - 1 do
+                local it = other.GLOB[i]
+                local f = it.flags
+                if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
+                    local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
+                    if mat and mat.material then
+                        local token = mat:getToken() or ""
+                        if token:find('TALLOW') or token:find('FAT') then
+                            count = count + (it.stack_size > 0 and it.stack_size or 1)
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Count LIQUID_MISC for oil (oils are liquids)
+        if other.LIQUID_MISC then
+            for i = 0, #other.LIQUID_MISC - 1 do
+                local it = other.LIQUID_MISC[i]
+                local f = it.flags
+                if not f.forbid and not f.dump and not f.garbage_collect and not f.removed and not f.in_building then
+                    local mat = dfhack.matinfo.decode(it:getMaterial(), it:getMaterialIndex())
+                    if mat and mat.material then
+                        local token = mat:getToken() or ""
+                        if token:find('OIL') then
+                            count = count + (it.stack_size > 0 and it.stack_size or 1)
+                        end
+                    end
+                end
+            end
+        end
+        
+        return count
     end)
 end
 

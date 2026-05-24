@@ -41,6 +41,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 |---|---|---|
 | `reflex_defense` | Tactical defense | Auto-pulls registered defense levers (named gate, bridge, panic, entrance, etc.) when hostile units are detected. |
 | `reflex_burrow` | Civilian safety | Restricts civilians to the "Safety" or "Panic" burrow during invasions; automatically lifts the restriction 600 ticks after the map is clear. |
+| `reflex_access_security` | Tactical defense | Manages security gate/drawbridge states: seals the fort during invasions, and opens gates for incoming caravans in peacetime. |
 
 ### 🩺 Health, Stress & Wellness
 | Script | Category | Role & Behavior |
@@ -48,6 +49,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_distress` | Wellness monitoring | Audits citizen health indicators (hunger, thirst, sleepiness, pain, bleeding, hospitalization status, strange moods) and logs warnings. |
 | `reflex_stress` | Mental health | Safely sends stressed citizens to the "Respite" spa burrow and suspends labors; restores original labors upon recovery. |
 | `reflex_medical` | Medical logistics | Audits Chief Medical Dwarf assignee status and hospital supply buffers (splints, crutches, soap, plaster, buckets) to queue production. |
+| `reflex_soap_chain` | Medical logistics | Coordinates the ash, lye, and soap production chain to maintain a buffer of 10 soaps in the hospital. |
 | `reflex_clothing` | Hygiene logistics | Ensures the C++ `tailor` plugin is active to automatically replace tattered, worn clothing and manage textile stock. |
 
 ### 🛠️ Industry, Farming & Resources
@@ -58,6 +60,7 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_farming` | Crop management | Automatically enables and configures C++ `autofarm` crop thresholds for all underground seeds. |
 | `reflex_woodcutter` | Forestry control | Dynamically enables and configures C++ `autochop` to cut logs when wood is low (<15) and suspends it when wood is healthy (>40) to prevent deforestation. |
 | `reflex_beds` | Citizen housing | Monitors bedroom furniture counts and automatically queues `ConstructBed` work orders to meet housing deficits. |
+| `reflex_auto_container` | Basic supplies | Audits empty barrels and stone pots in stock, ordering new container production if empty stock is low (<10). |
 | `reflex_mood_helper` | Strange moods | Automatically solves strange mood material bottlenecks by enabling autochop (wood), slaughtering excess animals (bone/leather), smelting ore (metal), or weaving thread (cloth). |
 
 ### 🐑 Livestock & Husbandry

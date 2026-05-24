@@ -34,6 +34,9 @@ local reflexSeedwatch = reqscript('dwarfmind/reflex_seedwatch')
 local reflexMoodHelper = reqscript('dwarfmind/reflex_mood_helper')
 local reflexCemeterySlab = reqscript('dwarfmind/reflex_cemetery_slab')
 local reflexGeld = reqscript('dwarfmind/reflex_geld')
+local reflexAutoContainer = reqscript('dwarfmind/reflex_auto_container')
+local reflexSoapChain = reqscript('dwarfmind/reflex_soap_chain')
+local reflexAccessSecurity = reqscript('dwarfmind/reflex_access_security')
 
 local log = logger.for_module('ai_core')
 
@@ -76,6 +79,11 @@ function tick_fast()
         reflexBurrow.run()
     end)
     if not ok_bur then log.err('tick_fast reflexBurrow failed: ' .. tostring(err_bur)) end
+
+    local ok_sec, err_sec = dfhack.pcall(function()
+        reflexAccessSecurity.run()
+    end)
+    if not ok_sec then log.err('tick_fast reflexAccessSecurity failed: ' .. tostring(err_sec)) end
 end
 
 -- Slow loop: planner / accounting work. Runs every PLANNER_PERIOD ticks
@@ -232,6 +240,18 @@ function tick_slow()
             reflexCleanup.run()
         end)
         if not ok_cln then log.warn('reflex_cleanup failed: ' .. tostring(err_cln)) end
+
+        -- 22. Auto container management (barrels/pots)
+        local ok_cont, err_cont = dfhack.pcall(function()
+            reflexAutoContainer.run()
+        end)
+        if not ok_cont then log.warn('reflex_auto_container failed: ' .. tostring(err_cont)) end
+
+        -- 23. Soap production chain coordination
+        local ok_soap, err_soap = dfhack.pcall(function()
+            reflexSoapChain.run()
+        end)
+        if not ok_soap then log.warn('reflex_soap_chain failed: ' .. tostring(err_soap)) end
 end
 
 -- ─── Scheduler control ───────────────────────────────────────────────────
@@ -267,6 +287,9 @@ local function arm()
     reflexMoodHelper.reset()
     reflexCemeterySlab.reset()
     reflexGeld.reset()
+    reflexAutoContainer.reset()
+    reflexSoapChain.reset()
+    reflexAccessSecurity.reset()
 
     repeatUtil.scheduleEvery(NAME_FAST, PERCEPTION_PERIOD, 'ticks', tick_fast)
     repeatUtil.scheduleEvery(NAME_SLOW, PLANNER_PERIOD,    'ticks', tick_slow)
