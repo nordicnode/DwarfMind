@@ -23,8 +23,16 @@ local SUPPLY_MINIMUMS = {
 
 -- Manager order job types and their item-type discriminators.
 -- job_type values are strings accepted by actuators.add_manager_order.
+--
+-- Suture note: DF sutures are raw THREAD items used directly from the hospital
+-- stockpile. The upstream production chain is:
+--   ProcessPlants  (plant → plant thread)  <-- we order this
+--   SpinThread     (plant thread → cloth thread) -- only needed for cloth, NOT sutures
+-- We order ProcessPlants so that raw fiber is converted to usable thread.
+-- If the fort has no spinnable plants, the order will queue but not complete;
+-- the player must ensure a farming/gathering supply of plant material.
 local SUPPLY_ORDERS = {
-    sutures  = { job = 'SpinThread',       quantity = 5  },
+    sutures  = { job = 'ProcessPlants',    quantity = 5  },
     crutches = { job = 'ConstructCrutch',  quantity = 3  },
     plaster  = { job = 'MakePlaster',      quantity = 3  },
     buckets  = { job = 'ConstructBucket',  quantity = 2  },
@@ -36,7 +44,7 @@ local ORDER_COOLDOWN = 7200  -- ~6 dwarf days between re-orders
 -- Per-supply cooldown table: [supply_key] = last_order_tick
 local last_order = {}
 
--- ─── Item counting helpers ───────────────────────────────────────────────
+-- ─── Item counting helpers ────────────────────────────────────────────────────
 
 -- Returns true when `item` is a thread/suture item.
 local function is_suture(item)
@@ -102,10 +110,20 @@ local function count_hospital_supplies()
         return false
     end
 
-    -- Scan all world items (we only check items that are not in a container,
-    -- to avoid double-counting items inside chests within the zone).
+    -- Scan all world items. Skip items that are:
+    --   in_inventory  — held by a unit (unit-carried medical supplies)
+    --   in_chest      — stored inside a chest/coffer within the zone
+    --   in_bin        — stored inside a bin within the zone
+    -- Excluding these prevents double-counting (the container itself is already
+    -- outside the hospital bounding box scan, but its contents share the
+    -- container's position) and avoids counting supplies mid-surgery.
     for _, item in ipairs(df.global.world.items.all) do
-        if item and not item.flags.garbage_collect and not item.flags.in_inventory then
+        if item
+           and not item.flags.garbage_collect
+           and not item.flags.in_inventory
+           and not item.flags.in_chest
+           and not item.flags.in_bin
+        then
             if in_hospital(item) then
                 if     is_suture(item)  then counts.sutures  = counts.sutures  + 1
                 elseif is_crutch(item)  then counts.crutches = counts.crutches + 1
@@ -119,7 +137,7 @@ local function count_hospital_supplies()
     return counts, true
 end
 
--- ─── Main run ────────────────────────────────────────────────────────────
+-- ─── Main run ───────────────────────────────────────────────────────────────
 
 function run()
     if not sensors.is_fort_loaded() then return end
@@ -148,7 +166,7 @@ function run()
             if (now - last) >= ORDER_COOLDOWN then
                 local order = SUPPLY_ORDERS[key]
                 log.warn(string.format(
-                    'infirmary supply LOW: %s=%d (min %d); queueing %d × %s',
+                    'infirmary supply LOW: %s=%d (min %d); queueing %d x %s',
                     key, have, minimum, order.quantity, order.job))
 
                 local ok_act, err_act = dfhack.pcall(function()

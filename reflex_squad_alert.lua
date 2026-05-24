@@ -11,9 +11,9 @@ local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_squad_alert')
 
 -- Keywords matched against squad names (lowercase) to identify fort-defense
--- squads. Uses the same word-boundary normalisation as reflex_defense lever
--- matching: a keyword must appear as a whole word separated by spaces,
--- underscores or hyphens — not embedded inside another word.
+-- squads. Matched with Lua frontier patterns (%f[%a]/%f[%A]) for strict whole-
+-- word boundaries — digits are not treated as word separators under this scheme,
+-- which is the correct behaviour (a squad named '3defend4' should NOT match).
 local ALERT_KEYWORDS = {
     'defend', 'defense', 'guard', 'militia', 'ranger', 'patrol', 'watch',
 }
@@ -28,11 +28,13 @@ local activated_squads = {}          -- set of squad ids we have activated
 local was_hostile     = false        -- was the map hostile last tick?
 
 -- Returns true when `name` contains any ALERT_KEYWORDS as a whole word.
+-- Uses Lua frontier patterns (%f[%a] / %f[%A]) so that a keyword embedded
+-- inside another word (e.g. 'watchman', '3defend4') does not match.
 local function is_defense_squad(name)
     if not name or name == '' then return false end
-    local padded = ' ' .. name:lower():gsub('[_%-]', ' ') .. ' '
+    local lower = name:lower():gsub('[_%-]', ' ')
     for _, kw in ipairs(ALERT_KEYWORDS) do
-        if padded:find('%W' .. kw .. '%W', 1) then
+        if lower:find('%f[%a]' .. kw .. '%f[%A]') then
             return true
         end
     end
@@ -53,17 +55,19 @@ function run()
 
     local hostile_present = (#hostiles > 0)
 
-    -- ── Deactivate when threat clears ────────────────────────────────────
+    -- ── Deactivate when threat clears ────────────────────────────────────────────
     if was_hostile and not hostile_present then
         log.info('hostiles cleared; standing down activated defense squads')
         for squad_id, _ in pairs(activated_squads) do
-            local ok_deact = dfhack.pcall(function()
+            local ok_deact, err_deact = dfhack.pcall(function()
                 dfhack.military.deactivateSquad(squad_id)
             end)
             if ok_deact then
                 log.info(string.format('squad #%d stood down', squad_id))
             else
-                log.warn(string.format('failed to deactivate squad #%d', squad_id))
+                log.warn(string.format(
+                    'failed to deactivate squad #%d: %s',
+                    squad_id, tostring(err_deact)))
             end
         end
         activated_squads = {}
@@ -77,13 +81,13 @@ function run()
         return
     end
 
-    -- ── Cooldown gate ────────────────────────────────────────────────────
+    -- ── Cooldown gate ─────────────────────────────────────────────────────────
     if (now - last_activate) < ACTIVATE_COOLDOWN then
         log.debug('squad alert on cooldown; skipping')
         return
     end
 
-    -- ── Activate matching squads ─────────────────────────────────────────
+    -- ── Activate matching squads ───────────────────────────────────────────────
     local squads = df.global.world.squads.all
     local activated_count = 0
 

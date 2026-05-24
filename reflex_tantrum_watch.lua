@@ -47,7 +47,11 @@ local last_announce = {}
 local function count_heavy_thoughts(unit)
     local soul = unit.status.current_soul
     if not soul then return 0 end
-    local thoughts = soul.personality.thoughts
+    -- Guard against a nil or corrupted personality table (can occur during
+    -- strange moods or when a unit's soul is partially initialised).
+    local personality = soul.personality
+    if not personality then return 0 end
+    local thoughts = personality.thoughts
     if not thoughts then return 0 end
     local count = 0
     for i = 0, #thoughts - 1 do
