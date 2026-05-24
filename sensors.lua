@@ -56,7 +56,7 @@ local function ensure_cache()
             local u_ok, is_idle = pcall(function()
                 if not U.isAlive(u) then return false end
                 if not U.isSane(u) then return false end
-                if u.job.current_job ~= nil then return false end
+                if u.job and u.job.current_job ~= nil then return false end
                 return U.isJobAvailable(u, false)
             end)
             if u_ok and is_idle then
@@ -127,8 +127,11 @@ local function ensure_cache()
                 end
 
                 -- Check bleeding
-                local bl_ok, is_bleeding = pcall(U.isBleeding, u)
-                if bl_ok and is_bleeding then
+                local is_bleeding = false
+                if u.body and u.body.blood_max and u.body.blood_max > 0 then
+                    is_bleeding = u.body.blood_count < u.body.blood_max
+                end
+                if is_bleeding then
                     if not entry then entry = { unit = u } end
                     entry.bleeding = true
                 end
@@ -402,8 +405,8 @@ function get_distressed_citizens()
     for _, u in ipairs(citizens) do
         local ok2, err = dfhack.pcall(function()
             if not u.flags1.has_mood then return end
+            if not u.job or not u.job.current_job then return end
             local job = u.job.current_job
-            if not job then return end
 
             local is_strange_mood = false
             local ok_mood, err_mood = pcall(function()
