@@ -22,7 +22,8 @@ local SUPPLY_MINIMUMS = {
 }
 
 -- Manager order job types and their item-type discriminators.
--- job_type values are strings accepted by actuators.add_manager_order.
+-- job_type values are strings passed to the DFHack 'workorder' script via
+-- actuators.run_script('workorder', job_type, quantity).
 --
 -- Suture note: DF sutures are raw THREAD items used directly from the hospital
 -- stockpile. The upstream production chain is:
@@ -169,16 +170,19 @@ function run()
                     'infirmary supply LOW: %s=%d (min %d); queueing %d x %s',
                     key, have, minimum, order.quantity, order.job))
 
-                local ok_act, err_act = dfhack.pcall(function()
-                    actuators.add_manager_order(
-                        order.job, order.quantity)
-                end)
-                if ok_act then
+                -- actuators.run_script is the correct framework entry-point for
+                -- work orders. It routes through the budget coordinator inside
+                -- actuators.lua and respects the dry_run flag. Returns false
+                -- when the per-tick order budget is exhausted; in that case we
+                -- do NOT advance the cooldown so the order retries next tick.
+                local queued = actuators.run_script(
+                    'workorder', order.job, tostring(order.quantity))
+                if queued then
                     last_order[key] = now
                 else
                     log.warn(string.format(
-                        'add_manager_order failed for %s: %s',
-                        key, tostring(err_act)))
+                        'workorder script call failed or budget exhausted for %s; will retry next tick',
+                        key))
                 end
             else
                 log.debug(string.format(
