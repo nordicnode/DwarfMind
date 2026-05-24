@@ -65,6 +65,9 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_beds` | Citizen housing | Monitors bedroom furniture counts and automatically queues `ConstructBed` work orders to meet housing deficits. |
 | `reflex_auto_container` | Basic supplies | Audits empty barrels and stone pots in stock, ordering new container production if empty stock is low (<10). |
 | `reflex_mood_helper` | Strange moods | Automatically solves strange mood material bottlenecks by enabling autochop (wood), slaughtering excess animals (bone/leather), smelting ore (metal), or weaving thread (cloth). |
+| `reflex_potash_chain` | Agricultural yield | Maintains a potash buffer for crop fertilization. Crawls the dependency chain: if potash is low it queues `MakePotash` at the Ashery; if ash is low it burns wood logs while respecting an ash floor reserve for `reflex_soap_chain`. |
+| `reflex_hospitality` | Economic logistics | Maintains a buffer of ≥10 free goblets/mugs so dwarves never drink directly from barrels (preventing negative thoughts). Prioritises stone and wood materials to avoid competing with `reflex_military_gear` for metal stocks. |
+| `reflex_melt_coordinator` | Stockpile throughput | Counts items bearing the `flags.melt` flag and queues the exact deficit of `MeltMetalObject` orders at the Smelter. Uses a rolling scan window to spread item-vector traversal cost across slow-loop cycles. |
 
 ### 🐑 Livestock & Husbandry
 | Script | Category | Role & Behavior |
@@ -97,6 +100,8 @@ DwarfMind coordinates a comprehensive ecosystem of automated cognitive reflexes,
 | `reflex_siege_ammo` | Ammunition logistics | Audits squad sizes against stockpiled/queued bolts and siege ammo, and queues `MakeAmmo` / `AssembleSiegeAmmo` work orders using the dominant available metal. |
 | `reflex_quarantine` | Werebeast quarantine | Tracks lycanthropy-infected citizens and automatically locks their bedroom doors on full-moon days (25–28) of the 28-day cycle, releasing them on day 1. If the infected citizen has no assigned bedroom, falls back to assigning them to the `Safety`/`Panic` burrow for containment and logs a loud warning to build a bedroom. |
 | `reflex_justice` | Law enforcement audit | Monitors Sheriff / Captain of the Guard appointment, jailed prisoner wellness, and available justice restraints (chains/cages); logs critical warnings. |
+| `reflex_trap_logistics` | Engineering buffer | Maintains a minimum reserve of 5 free mechanisms (`TRAPPARTS`) via `ConstructMechanism` orders using stone. Prevents `reflex_defense` and `reflex_hydrology` from stalling due to mechanism shortages. |
+| `reflex_bookkeeper_audit` | Administrative precision | Inspects `plotinfo.bookkeeper_precision` every slow tick and forces it to maximum (5) when it has drifted down, ensuring all sensor inventory counts across every reflex return exact values rather than loose estimates. |
 
 ---
 

@@ -43,6 +43,12 @@ local reflexSiegeAmmo = reqscript('dwarfmind/reflex_siege_ammo')
 local reflexVerminControl = reqscript('dwarfmind/reflex_vermin_control')
 local reflexJustice = reqscript('dwarfmind/reflex_justice')
 local reflexInfirmarySupply = reqscript('dwarfmind/reflex_infirmary_supply')
+-- New slow-loop reflexes
+local reflexHospitality     = reqscript('dwarfmind/reflex_hospitality')
+local reflexMeltCoordinator = reqscript('dwarfmind/reflex_melt_coordinator')
+local reflexTrapLogistics   = reqscript('dwarfmind/reflex_trap_logistics')
+local reflexPotashChain     = reqscript('dwarfmind/reflex_potash_chain')
+local reflexBookkeeperAudit = reqscript('dwarfmind/reflex_bookkeeper_audit')
 
 local log = logger.for_module('ai_core')
 
@@ -179,6 +185,19 @@ local function init_slow_reflexes()
         { reflexVerminControl,  'vermin_control',   log.warn },
         -- 28. Justice and law enforcement audit
         { reflexJustice,        'justice',          log.warn },
+        -- === Industry Logistics & Administrative Reflexes ===
+        -- 29. Bookkeeper precision audit (must run before inventory-dependent reflexes
+        --     in the next cycle; placed early in the economic block for that reason)
+        { reflexBookkeeperAudit,'bookkeeper_audit', log.warn },
+        -- 30. Tavern mug / goblet buffer (happiness logistics)
+        { reflexHospitality,    'hospitality',      log.warn },
+        -- 31. Automated metal recycling — drains melt-flagged item backlog
+        { reflexMeltCoordinator,'melt_coordinator', log.warn },
+        -- 32. Mechanism / TRAPPARTS engineering buffer
+        --     (critical infrastructure dependency for reflex_defense and reflex_hydrology)
+        { reflexTrapLogistics,  'trap_logistics',   log.warn },
+        -- 33. Potash / fertilization chain (extends reflex_farming pipeline)
+        { reflexPotashChain,    'potash_chain',     log.warn },
     }
 end
 
@@ -265,6 +284,12 @@ local function arm()
     reflexVerminControl.reset()
     reflexJustice.reset()
     reflexInfirmarySupply.reset()
+    -- New reflexes
+    reflexHospitality.reset()
+    reflexMeltCoordinator.reset()
+    reflexTrapLogistics.reset()
+    reflexPotashChain.reset()
+    reflexBookkeeperAudit.reset()
 
     repeatUtil.scheduleEvery(NAME_FAST, PERCEPTION_PERIOD, 'ticks', tick_fast)
     repeatUtil.scheduleEvery(NAME_SLOW, PLANNER_PERIOD,    'ticks', tick_slow)

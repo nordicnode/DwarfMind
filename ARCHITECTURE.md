@@ -109,8 +109,8 @@ end
 `log.err` entries are life-critical (quarantine, medical, etc.);
 `log.warn` entries are non-critical (trade, woodcutter, etc.).
 
-The current `SLOW_REFLEXES` table has **28 entries** in priority order
-(life-critical first, economic last).
+The current `SLOW_REFLEXES` table has **33 entries** in priority order
+(life-critical first, economic/administrative last).
 
 ## Burrow ownership arbitration
 
@@ -199,6 +199,11 @@ end
 | [dwarfmind/reflex_soap_chain.lua](reflex_soap_chain.lua) | Soap production chain coordination. |
 | [dwarfmind/reflex_vermin_control.lua](reflex_vermin_control.lua) | Pet population control (cat management). |
 | [dwarfmind/reflex_justice.lua](reflex_justice.lua) | Justice and law enforcement audit. |
+| [dwarfmind/reflex_bookkeeper_audit.lua](reflex_bookkeeper_audit.lua) | Forces Bookkeeper precision to maximum so all sensor inventory counts are exact. |
+| [dwarfmind/reflex_hospitality.lua](reflex_hospitality.lua) | Maintains a free goblet/mug buffer (≥10) to prevent dwarves drinking directly from barrels; prioritises stone/wood to avoid competing with military gear. |
+| [dwarfmind/reflex_melt_coordinator.lua](reflex_melt_coordinator.lua) | Counts items flagged `flags.melt` and queues the exact deficit of `MeltMetalObject` orders; uses a round-robin scan window to spread item-vector traversal cost. |
+| [dwarfmind/reflex_trap_logistics.lua](reflex_trap_logistics.lua) | Maintains a reserve of ≥5 free mechanisms (TRAPPARTS) via `ConstructMechanism` orders; stone-only to preserve wood/metal for other pipelines. |
+| [dwarfmind/reflex_potash_chain.lua](reflex_potash_chain.lua) | Fertilization chain coordinator: audits potash stock, queues `MakePotash` at the Ashery if ash is available, or burns wood logs for ash while respecting an `ASH_FLOOR` reserve for `reflex_soap_chain`. |
 
 ## Inter-module wiring
 
