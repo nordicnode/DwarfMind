@@ -26,9 +26,11 @@ local ACTION_COOLDOWN = 1200
 local in_spa = {}  -- [unit_id] = record
 local state_loaded = false
 
+local PERSIST_KEY = 'dwarfmind/stress_spa'
+
 local function load_in_spa()
     state_loaded = true
-    local entry = dfhack.persistent.get('dwarfmind/stress_spa')
+    local entry = dfhack.persistent.get(PERSIST_KEY)
     local loaded = {}
     if entry and entry.value and entry.value ~= '' then
         local ok, decoded = pcall(json.decode, entry.value)
@@ -64,11 +66,29 @@ local function save_in_spa()
             original_labors = original_labors
         }
     end
-    local ok, encoded = pcall(json.encode, data)
-    if ok and encoded then
-        local entry = dfhack.persistent.get('dwarfmind/stress_spa') or dfhack.persistent.save('dwarfmind/stress_spa')
-        entry.value = encoded
+    local enc_ok, encoded = pcall(json.encode, data)
+    if not enc_ok or not encoded then
+        log.warn('save_in_spa: json.encode failed; spa state not persisted')
+        return
     end
+
+    -- BUG FIX: The previous code called dfhack.persistent.get() then assigned
+    -- to entry.value without checking whether get() returned nil (which happens
+    -- on the very first save when the key doesn't exist yet).  A nil entry
+    -- caused a nil-index error.  The safe pattern is:
+    --   1. try get() first (cheapest path for existing key)
+    --   2. fall back to save{key=...} to create the record if absent
+    --   3. guard the final assignment so a failed save{} doesn't crash either
+    local entry = dfhack.persistent.get(PERSIST_KEY)
+    if not entry then
+        local save_ok
+        save_ok, entry = pcall(dfhack.persistent.save, {key = PERSIST_KEY})
+        if not save_ok or not entry then
+            log.warn('save_in_spa: dfhack.persistent.save failed; spa state not persisted')
+            return
+        end
+    end
+    entry.value = encoded
 end
 
 -- Save which labors are currently enabled on a unit.
@@ -155,7 +175,7 @@ function run()
             else
                 log.debug(string.format('STRESS MONITOR: %s still stressed (stress=%d) in spa; holding',
                     sensors.describe_unit(u), stress))
-                
+
                 -- Coordinate with civilian alerts to prevent pathfinding conflicts.
                 -- EDGE CASES & LATENCY:
                 -- 1. When an alert is active, the dwarf is removed from the Respite burrow but
@@ -168,13 +188,18 @@ function run()
                     if alert_active then
                         -- Temporarily suspend Respite burrow restriction during civilian alert
                         if is_in_spa_burrow then
-                            log.warn(string.format('CIVILIAN ALERT ACTIVE: Temporarily removing stressed dwarf %s from Respite burrow to prevent pathfinding conflicts', sensors.describe_unit(u)))
+                            log.warn(string.format(
+                                'CIVILIAN ALERT ACTIVE: Temporarily removing stressed dwarf %s '
+                                .. 'from Respite burrow to prevent pathfinding conflicts',
+                                sensors.describe_unit(u)))
                             actuators.remove_unit_from_burrow(u, spa_id)
                         end
                     else
                         -- Re-enable Respite burrow restriction when civilian alert ends
                         if not is_in_spa_burrow then
-                            log.info(string.format('CIVILIAN ALERT DEACTIVATED: Restoring stressed dwarf %s to Respite burrow', sensors.describe_unit(u)))
+                            log.info(string.format(
+                                'CIVILIAN ALERT DEACTIVATED: Restoring stressed dwarf %s to Respite burrow',
+                                sensors.describe_unit(u)))
                             actuators.assign_unit_to_burrow(u, spa_id)
                         end
                     end
@@ -208,18 +233,21 @@ function run()
     for _, entry in ipairs(stressed) do
         local u = entry.unit
         if not in_spa[u.id] then
-            log.warn(string.format('STRESS INTERVENTION: %s stress=%d exceeds threshold %d; sending to Respite',
+            log.warn(string.format(
+                'STRESS INTERVENTION: %s stress=%d exceeds threshold %d; sending to Respite',
                 sensors.describe_unit(u), entry.stress, STRESS_THRESHOLD))
             local original_labors = save_labor_state(u)
             disable_all_labors(u)
-            
+
             -- Only assign to Respite burrow if no civilian alert is active
             if not alert_active then
                 actuators.assign_unit_to_burrow(u, spa_id)
             else
-                log.warn(string.format('CIVILIAN ALERT ACTIVE: Delaying Respite burrow assignment for newly stressed dwarf %s', sensors.describe_unit(u)))
+                log.warn(string.format(
+                    'CIVILIAN ALERT ACTIVE: Delaying Respite burrow assignment for newly stressed dwarf %s',
+                    sensors.describe_unit(u)))
             end
-            
+
             in_spa[u.id] = { tick_sent = now, original_labors = original_labors }
             intervened = true
         end
