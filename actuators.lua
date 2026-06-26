@@ -444,6 +444,28 @@ function mark_unit_for_gelding(unit, geld)
     end)
 end
 
+-- ─── Lever actuation ────────────────────────────────────────────────────
+-- Pull a lever by building ID.  Routes through the DFHack 'lever' script
+-- which validates the building reference and queues a PullLever job.
+-- Returns true on success (or in dry_run mode), false on failure.
+function pull_lever(building_id)
+    if not building_id then
+        log.warn('pull_lever called with nil building_id')
+        return false
+    end
+    if dry_run then
+        log.info(string.format('DRY RUN: would pull lever building #%d', building_id))
+        return true
+    end
+    -- Delegate to the DFHack lever script (same pattern as reflex_defense).
+    -- --priority flags the PullLever job as high-priority so it isn't
+    -- delayed behind routine hauling tasks.
+    return safe_act('pull_lever', function()
+        dfhack.run_script('lever', 'pull',
+            '--id', tostring(building_id), '--priority')
+    end)
+end
+
 -- ─── Thought injection ────────────────────────────────────────────────────
 -- Injects a synthetic thought directly into the unit's personality thought
 -- vector (unit.status.current_soul.personality.thoughts).

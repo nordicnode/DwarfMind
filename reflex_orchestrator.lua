@@ -411,7 +411,7 @@ local function escalate_quarantine()
         if ok_u and infected_units then
             for _, u in ipairs(infected_units) do
                 local ok_assign, err_assign = pcall(function()
-                    actuators.assign_unit_to_burrow(u.id, burrow_id)
+                    actuators.assign_unit_to_burrow(u, burrow_id)
                 end)
                 if not ok_assign then
                     log.warn(('escalate_quarantine: assign unit %d failed: %s')

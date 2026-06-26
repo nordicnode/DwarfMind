@@ -52,6 +52,7 @@ local reflexMeltCoordinator = reqscript('dwarfmind/reflex_melt_coordinator')
 local reflexTrapLogistics   = reqscript('dwarfmind/reflex_trap_logistics')
 local reflexPotashChain     = reqscript('dwarfmind/reflex_potash_chain')
 local reflexBookkeeperAudit = reqscript('dwarfmind/reflex_bookkeeper_audit')
+local buildLayer            = reqscript('dwarfmind/build_layer')
 
 local log = logger.for_module('ai_core')
 
@@ -211,6 +212,8 @@ local function init_slow_reflexes()
         { reflexTrapLogistics,  'trap_logistics',   log.warn, 'military'      },
         -- 33. Potash / fertilization chain
         { reflexPotashChain,    'potash_chain',     log.warn, 'agricultural'  },
+        -- 34. Spatial planning & blueprinting (terrain scan, dig, furniture)
+        { buildLayer,          'build_layer',      log.warn, 'build'         },
     }
 end
 
@@ -308,6 +311,7 @@ local function arm()
     reflexTrapLogistics.reset()
     reflexPotashChain.reset()
     reflexBookkeeperAudit.reset()
+    buildLayer.reset()
 
     repeatUtil.scheduleEvery(NAME_FAST, PERCEPTION_PERIOD, 'ticks', tick_fast)
     repeatUtil.scheduleEvery(NAME_SLOW, PLANNER_PERIOD,    'ticks', tick_slow)
