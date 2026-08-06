@@ -1205,17 +1205,56 @@ function check_active_mandates()
 end
 
 -- ─── Stress / Mental Health ──────────────────────────────────────────
+-- Returns the unit's current stress value using the CANONICAL DFHack path:
+--   unit.status.current_soul.personality.stress
+-- (DFHack's own Units.cpp reads `unit->status.current_soul->personality.stress`
+-- and its stress_cutoffs use the ±100k scale).  Returns nil when the soul or
+-- personality is unavailable.
+--
+-- FIX: the previous readers used unit.status.stress (sensors + reflex_stress)
+-- and soul.personality.stress_level (reflex_tantrum_watch) — neither field
+-- exists in df-structures, so every stress read silently returned nil and the
+-- entire stress-spa subsystem was inert.
+function get_unit_stress(unit)
+    return safe('get_unit_stress', nil, function()
+        if not unit then return nil end
+        local soul = unit.status and unit.status.current_soul
+        local personality = soul and soul.personality
+        if not personality then return nil end
+        return personality.stress
+    end)
+end
+
+-- Pure string predicate shared by the defense, access-security, and
+-- orchestrator reflexes: returns true when `name` contains any of `keywords`
+-- as a whole word (space / underscore / hyphen separated).  This keeps lever
+-- name matching consistent everywhere and prevents substring false positives
+-- (e.g. "gate" must not match "floodgate").
+function matches_keywords(name, keywords)
+    if not name or name == '' then return false end
+    local padded = ' ' .. name:lower():gsub('[_%-]', ' ') .. ' '
+    for _, kw in ipairs(keywords) do
+        if padded:find('%W' .. kw .. '%W', 1) then
+            return true
+        end
+    end
+    return false
+end
+
 -- Returns a list of stressed citizens whose stress exceeds the given threshold.
 -- Each entry: { unit = u, stress = N, in_spa = boolean }
 -- Second return value is the ok flag.
+--
+-- Default threshold: 10000 = the top of DF's neutral stress band (per
+-- DFHack Units.cpp stress_cutoffs, "Stressed" begins at +10000).
 function get_stressed_citizens(threshold)
-    threshold = threshold or 5000
+    threshold = threshold or 10000
     return safe('get_stressed_citizens', {}, function()
         local result = {}
         local citizens = get_citizens()
         local spa_id = find_burrow_id_by_name('Respite')
         local spa_burrow = nil
-        
+
         if spa_id then
             local burrows = df.global.plotinfo.burrows.list
             for b = 0, #burrows - 1 do
@@ -1225,11 +1264,11 @@ function get_stressed_citizens(threshold)
                 end
             end
         end
-        
+
         for _, u in ipairs(citizens) do
-            local ok_stress, stress = pcall(function()
-                return u.status.stress end)
-            if ok_stress and stress and stress > threshold then
+            -- FIX: read the canonical personality.stress field (see get_unit_stress).
+            local stress = get_unit_stress(u)
+            if stress and stress > threshold then
                 local in_spa = false
                 if spa_burrow then
                     in_spa = dfhack.burrows.isAssignedUnit(spa_burrow, u)
@@ -1237,7 +1276,7 @@ function get_stressed_citizens(threshold)
                 table.insert(result, { unit = u, stress = stress, in_spa = in_spa })
             end
         end
-        
+
         return result
     end)
 end

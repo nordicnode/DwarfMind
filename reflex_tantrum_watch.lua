@@ -14,27 +14,44 @@ local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_tantrum_watch')
 
 -- Stress level below which we ignore the unit entirely (fast exit).
-local IGNORE_BELOW       = 500
+-- DF stress uses a ±100k scale (neutral band is -10000..+10000); 5000 is
+-- just above neutral and safely below every intervention floor.
+local IGNORE_BELOW       = 5000
 -- Stress floor that triggers a deep bad-thought inspection.
-local TANTRUM_STRESS_FLOOR = 2500
+-- FIX: recalibrated to DF's scale — old 2500 sat below the neutral band and
+-- would have inspected nearly every citizen once the canonical stress field
+-- was wired up.  10000 = top of neutral / start of "Stressed", deliberately
+-- BELOW reflex_stress's spa threshold (20000) so this reflex catches the
+-- pre-spa spiral band.
+local TANTRUM_STRESS_FLOOR = 10000
 -- How many ticks before we re-announce the same unit.
 local ANNOUNCE_COOLDOWN  = 2400
 
 -- Bad-thought type enums that carry heavy persistent weight and can trigger
 -- tantrum moods independently of the raw stress integer.
 -- Using df.unit_thought_type enum values for portability.
-local HIGH_WEIGHT_THOUGHTS = {
-    df.unit_thought_type.FELT_DEAD_UNIT_IN_FORT,
-    df.unit_thought_type.LOST_LOVED_ONE,
-    df.unit_thought_type.DEMANDED_TRIBUTE,
-    df.unit_thought_type.KILLED_UNIT,
-    df.unit_thought_type.COWORKER_DIED_AT_WORK,
-    df.unit_thought_type.FELT_SCARED,
-}
--- Build a lookup set for O(1) membership test.
-local HIGH_WEIGHT_SET = {}
-for _, t in ipairs(HIGH_WEIGHT_THOUGHTS) do
-    HIGH_WEIGHT_SET[t] = true
+--
+-- NOTE: built LAZILY on first run() (like the persistent-state pattern) so the
+-- module chunk never touches the `df` global at load time — this keeps the
+-- file safe to require at the main-menu screen and passes the load-time check.
+local HIGH_WEIGHT_THOUGHTS = nil
+local HIGH_WEIGHT_SET = nil
+
+local function ensure_thought_set()
+    if HIGH_WEIGHT_SET then return end
+    HIGH_WEIGHT_THOUGHTS = {
+        df.unit_thought_type.FELT_DEAD_UNIT_IN_FORT,
+        df.unit_thought_type.LOST_LOVED_ONE,
+        df.unit_thought_type.DEMANDED_TRIBUTE,
+        df.unit_thought_type.KILLED_UNIT,
+        df.unit_thought_type.COWORKER_DIED_AT_WORK,
+        df.unit_thought_type.FELT_SCARED,
+    }
+    -- Build a lookup set for O(1) membership test.
+    HIGH_WEIGHT_SET = {}
+    for _, t in ipairs(HIGH_WEIGHT_THOUGHTS) do
+        HIGH_WEIGHT_SET[t] = true
+    end
 end
 
 -- How many high-weight thoughts a unit must have before we intervene.
@@ -45,6 +62,7 @@ local last_announce = {}
 
 -- Returns the count of high-weight bad thoughts currently active on `unit`.
 local function count_heavy_thoughts(unit)
+    ensure_thought_set()
     local soul = unit.status.current_soul
     if not soul then return 0 end
     -- Guard against a nil or corrupted personality table (can occur during
@@ -63,11 +81,11 @@ local function count_heavy_thoughts(unit)
     return count
 end
 
--- Returns the current stress level from the unit soul, or nil on failure.
+-- Returns the current stress level, or nil on failure.
+-- FIX: canonical field is unit.status.current_soul.personality.stress
+-- (see sensors.get_unit_stress); personality.stress_level does not exist.
 local function get_stress(unit)
-    local soul = unit.status and unit.status.current_soul
-    if not soul then return nil end
-    return soul.personality.stress_level
+    return sensors.get_unit_stress(unit)
 end
 
 -- Returns true if the unit is currently in an active bad mood / tantrum.

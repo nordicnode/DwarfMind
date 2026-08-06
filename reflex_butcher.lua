@@ -49,6 +49,18 @@ local function table_size(t)
     return n
 end
 
+-- Sort ascending by birth date (youngest first).  Culling then takes the
+-- YOUNGEST animals first and preserves the oldest breeding stock, matching
+-- the policy already used by reflex_geld and reflex_vermin_control.
+-- FIX: the previous code selected males/females in insertion order, so the
+-- animals culled were arbitrary and could include the best breeding stock.
+local function by_birth_asc(a, b)
+    if a.birth_year ~= b.birth_year then
+        return a.birth_year < b.birth_year
+    end
+    return a.birth_time < b.birth_time
+end
+
 -- ─── Reflex cycle ────────────────────────────────────────────────────────
 function run()
     if not sensors.is_fort_loaded() then return end
@@ -114,6 +126,11 @@ function run()
 
             local last = last_action[cid] or -math.huge
             if (now - last) >= ACTION_COOLDOWN then
+                -- Youngest-first ordering so culling preserves the oldest
+                -- breeding male and female (see by_birth_asc).
+                table.sort(adult_males, by_birth_asc)
+                table.sort(adult_females, by_birth_asc)
+
                 local to_slaughter = {}
                 -- Keep at least 1 adult male for breeding, kill other males first
                 local males_to_kill = math.min(excess, math.max(0, #adult_males - 1))

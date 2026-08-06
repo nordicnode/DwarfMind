@@ -21,20 +21,11 @@ local SECURITY_KEYWORDS = {
 local ACTION_COOLDOWN = 1000
 local last_action = {} -- [lever_id] = tick
 
--- FIX: the previous matcher used a plain substring find, so a lever nicknamed
--- e.g. "floodgate" or "delegate" matched the keyword "gate" and got pulled
--- during peacetime caravan handling — the same false-positive class already
--- fixed in reflex_defense.  Require the keyword to be a whole word, treating
--- spaces/underscores/hyphens as separators.
+-- Whole-word matcher (shared with reflex_defense via sensors.matches_keywords).
+-- The previous plain substring find matched "floodgate"/"delegate" for the
+-- keyword "gate" and pulled unrelated levers during peacetime caravan handling.
 local function is_security_lever(name)
-    if not name or name == '' then return false end
-    local padded = ' ' .. name:lower():gsub('[_%-]', ' ') .. ' '
-    for _, kw in ipairs(SECURITY_KEYWORDS) do
-        if padded:find('%W' .. kw .. '%W', 1) then
-            return true
-        end
-    end
-    return false
+    return sensors.matches_keywords(name, SECURITY_KEYWORDS)
 end
 
 function run()

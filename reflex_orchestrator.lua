@@ -285,12 +285,18 @@ end
 --
 -- Replacement strategy:
 --   1. Alert all squads via actuators.run_command('alertlevel', '2').
---   2. Close all bridges that are currently open by pulling their levers
+--   2. Close all open DEFENSE-named bridge/gate levers
 --      directly through sensors.get_levers() + actuators.pull_lever().
 --   3. Activate civilian burrow evacuation via actuators.set_civilian_alert().
 --
 -- This routes every mutation through actuators (the designated write gate)
 -- and never calls a non-existent DFHack script path.
+
+-- Defense lever name keywords (whole-word matched, same policy as
+-- reflex_defense / reflex_access_security).
+local SIEGE_LEVER_KEYWORDS = {
+    'gate', 'bridge', 'panic', 'entrance', 'defense',
+}
 
 local function escalate_siege()
     if actuators.is_dry_run() then
@@ -306,14 +312,22 @@ local function escalate_siege()
         log.warn(('escalate_siege: alertlevel failed: %s'):format(tostring(err_alert)))
     end
 
-    -- 2. Pull all open bridge-linked levers to close gates
+    -- 2. Close all open defense levers.
+    -- FIX: the previous loop pulled ANY lever with state 'open'/nil.  A
+    -- cistern or floodgate lever with an unknown state would therefore be
+    -- pulled during a siege — and since a pull TOGGLES the mechanism, this
+    -- could open a floodgate and flood the fort.  Restrict to defense-named
+    -- levers (whole-word) and mirror reflex_defense's state policy.
     local levers, ok_lev = sensors.get_levers()
     if ok_lev and levers then
         for _, entry in ipairs(levers) do
             -- entry.state is populated by sensors.get_levers():
             -- 'open' = bridge is down (open) and should be raised (closed)
-            -- Only pull levers that are not already closed and have no pull job queued
-            if (entry.state == 'open' or entry.state == nil)
+            -- Only pull defense levers that are not already sealed and have no
+            -- pull job queued.
+            local state = entry.state
+            if sensors.matches_keywords(entry.name, SIEGE_LEVER_KEYWORDS)
+            and (state == 'open' or state == 'opening' or state == nil)
             and not entry.has_pull_job then
                 local ok_pull, err_pull = pcall(function()
                     actuators.pull_lever(entry.building.id)

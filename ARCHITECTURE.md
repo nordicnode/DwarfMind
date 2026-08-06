@@ -180,7 +180,7 @@ end
 | [dwarfmind/reflex_cemetery_slab.lua](reflex_cemetery_slab.lua) | Engraves slabs for missing citizens to prevent ghost rampages. |
 | [dwarfmind/reflex_quarantine.lua](reflex_quarantine.lua) | Werebeast bedroom door quarantine during full moon (days 25–28); Safety burrow fallback when no bedroom exists. |
 | [dwarfmind/reflex_stress.lua](reflex_stress.lua) | Stress spa / mental health intervention; persists recovery state across saves. |
-| [dwarfmind/reflex_tantrum_watch.lua](reflex_tantrum_watch.lua) | Early-warning tantrum detection at a lower stress floor (2 500) with bad-thought inspection and fine-meal consolation. |
+| [dwarfmind/reflex_tantrum_watch.lua](reflex_tantrum_watch.lua) | Early-warning tantrum detection at a lower stress floor (10 000 — top of DF's neutral band) with bad-thought inspection and fine-meal consolation. |
 | [dwarfmind/reflex_farming.lua](reflex_farming.lua) | Ensures DFHack autofarm plugin is enabled and configured. |
 | [dwarfmind/reflex_seedwatch.lua](reflex_seedwatch.lua) | Seed watch — protects plump helmet seeds from the kitchen. |
 | [dwarfmind/reflex_hydrology.lua](reflex_hydrology.lua) | Cistern water level management. |
@@ -206,7 +206,7 @@ end
 | [dwarfmind/reflex_trap_logistics.lua](reflex_trap_logistics.lua) | Maintains a reserve of ≥5 free mechanisms (TRAPPARTS) via `ConstructMechanisms` orders; stone-only to preserve wood/metal for other pipelines. |
 | [dwarfmind/reflex_potash_chain.lua](reflex_potash_chain.lua) | Fertilization chain coordinator: audits potash stock, queues `MakePotashFromAsh` at the Ashery if ash is available, or burns wood logs for ash while respecting an `ASH_FLOOR` reserve for `reflex_soap_chain`. |
 | [dwarfmind/reflex_orchestrator.lua](reflex_orchestrator.lua) | Macro-goal FSM orchestrator: arbitrates `PEACE`/`SIEGE`/`DISTRESS_FAMINE`/`QUARANTINE` states and emits per-category cadence multipliers that `ai_core` enforces (dispatch gate). |
-| [dwarfmind/build_layer.lua](build_layer.lua) | Spatial planning layer: segmented round-robin terrain scanner, blueprint generator (workshop block, residential nodes, stockpile, admin hall), dig designations, and furniture placement queue. |
+| [dwarfmind/build_layer.lua](build_layer.lua) | Spatial planning layer: segmented round-robin terrain scanner, blueprint generator (workshop block, residential nodes, stockpile, admin hall), dig designations, and furniture placement queue (fails soft when the DFHack `build` tool is unavailable). |
 
 ## Inter-module wiring
 
