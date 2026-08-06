@@ -26,12 +26,11 @@ local CONFIG = {
 }
 
 -- Keywords to look for in lever name for cistern gates.
+-- Matched as whole words via the shared sensors.matches_keywords() (the
+-- previous plain-substring find could false-positive on names like
+-- "cistern_gatekeeper" and diverged from the defense/access-security policy).
 local CISTERN_LEVER_KEYWORDS = {
-    cistern = true,
-    water_inlet = true,
-    floodgate = true,
-    inlet = true,
-    reservoir = true,
+    'cistern', 'water_inlet', 'floodgate', 'inlet', 'reservoir',
 }
 
 -- Cooldown between lever actions.
@@ -41,14 +40,7 @@ local ACTION_COOLDOWN = 1200
 local last_action = {}  -- [lever_id] = tick
 
 local function is_cistern_lever(name)
-    if not name or name == '' then return false end
-    local n = name:lower()
-    for kw in pairs(CISTERN_LEVER_KEYWORDS) do
-        if n:find(kw, 1, true) then
-            return true
-        end
-    end
-    return false
+    return sensors.matches_keywords(name, CISTERN_LEVER_KEYWORDS)
 end
 
 local function is_cistern_gate_open(l)
@@ -122,7 +114,7 @@ function run()
                     else
                         log.warn(string.format('CISTERN LOW WATER: pulling lever #%d (%s) @ (%d,%d,%d) to OPEN inlet (depth=%d)',
                             l.building.id, l.name, l.building.centerx, l.building.centery, l.building.z, depth))
-                        actuators.run_script('lever', 'pull', '--id', tostring(l.building.id), '--priority')
+                        actuators.pull_lever(l.building.id)
                         last_action[l.building.id] = now
                     end
                 else
@@ -138,7 +130,7 @@ function run()
                     else
                         log.warn(string.format('CISTERN HIGH WATER: pulling lever #%d (%s) @ (%d,%d,%d) to CLOSE inlet (depth=%d)',
                             l.building.id, l.name, l.building.centerx, l.building.centery, l.building.z, depth))
-                        actuators.run_script('lever', 'pull', '--id', tostring(l.building.id), '--priority')
+                        actuators.pull_lever(l.building.id)
                         last_action[l.building.id] = now
                     end
                 else

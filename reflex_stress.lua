@@ -193,7 +193,17 @@ function run()
             -- FIX: canonical stress field is unit.status.current_soul.personality.stress
             -- (see sensors.get_unit_stress).  u.status.stress does not exist.
             local stress = sensors.get_unit_stress(u)
-            if stress <= RECOVERED_THRESHOLD then
+            if not stress then
+                -- FIX (nil-crash guard): get_unit_stress() returns nil while a
+                -- unit's soul/personality is transiently uninitialised (strange
+                -- moods, partial soul init — the case reflex_tantrum_watch also
+                -- guards).  The old `stress <= RECOVERED_THRESHOLD` comparison
+                -- raised "attempt to compare nil with number", which aborted the
+                -- ENTIRE stress reflex every slow tick (pcall-caught in ai_core).
+                -- Hold the unit in the spa without crashing instead.
+                log.debug(string.format('STRESS MONITOR: %s stress unreadable; holding in spa',
+                    sensors.describe_unit(u)))
+            elseif stress <= RECOVERED_THRESHOLD then
                 log.info(string.format('STRESS RECOVERY: %s stress=%d (below %d); restoring labors and removing from spa',
                     sensors.describe_unit(u), stress, RECOVERED_THRESHOLD))
                 restore_dwarf(u, record)

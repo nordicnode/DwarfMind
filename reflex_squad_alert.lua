@@ -11,9 +11,9 @@ local logger    = reqscript('dwarfmind/logger')
 local log       = logger.for_module('reflex_squad_alert')
 
 -- Keywords matched against squad names (lowercase) to identify fort-defense
--- squads. Matched with Lua frontier patterns (%f[%a]/%f[%A]) for strict whole-
--- word boundaries — digits are not treated as word separators under this scheme,
--- which is the correct behaviour (a squad named '3defend4' should NOT match).
+-- squads.  Matched as whole words via the shared sensors.matches_keywords()
+-- (space / underscore / hyphen separated; a squad named '3defend4' or
+-- 'watchman' does NOT match, matching the previous frontier-pattern policy).
 local ALERT_KEYWORDS = {
     'defend', 'defense', 'guard', 'militia', 'ranger', 'patrol', 'watch',
 }
@@ -28,17 +28,10 @@ local activated_squads = {}          -- set of squad ids we have activated
 local was_hostile     = false        -- was the map hostile last tick?
 
 -- Returns true when `name` contains any ALERT_KEYWORDS as a whole word.
--- Uses Lua frontier patterns (%f[%a] / %f[%A]) so that a keyword embedded
--- inside another word (e.g. 'watchman', '3defend4') does not match.
+-- Shared whole-word matcher lives in sensors.matches_keywords() so the
+-- squad, defense, access-security, and orchestrator reflexes stay consistent.
 local function is_defense_squad(name)
-    if not name or name == '' then return false end
-    local lower = name:lower():gsub('[_%-]', ' ')
-    for _, kw in ipairs(ALERT_KEYWORDS) do
-        if lower:find('%f[%a]' .. kw .. '%f[%A]') then
-            return true
-        end
-    end
-    return false
+    return sensors.matches_keywords(name, ALERT_KEYWORDS)
 end
 
 function run()

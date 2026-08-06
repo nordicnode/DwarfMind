@@ -237,13 +237,21 @@ empty function with a comment explaining what future state it will clear.
 
 ### Sensor cache
 
-`sensors.lua` maintains a per-frame cache keyed by `df.global.cur_year_tick`.
-The cache is useful for deduplicating sensor calls **within a single
-`tick_fast` pass** (multiple fast reflexes calling `get_hostiles()` in
-the same frame will hit the cache after the first call).  The cache
-provides **no benefit** across `tick_slow` calls because each reflex runs
-in a different frame — do not rely on cached sensor values persisting
-between two slow-loop reflexes.
+`sensors.lua` maintains a **two-tier cache** so heavy scans stay on the slow
+cadence (per the fast/slow cadence rule above):
+
+*   **Fast tier** (`fast_cache`, refreshed every frame change): contains
+    ONLY the hostiles list, which the fast-loop reflexes (`reflex_defense`,
+    `reflex_burrow`, `reflex_squad_alert`, `reflex_access_security`) need
+    sub-second freshness for.  One pass over `units.active`, no pcalls.
+*   **Full tier** (`tick_cache`, rebuilt at most once per `SLOW_CACHE_PERIOD`
+    = 1200 ticks = one dwarf day): citizens, idle dwarves, distress,
+    werebeasts, livestock, grazers, rotting refuse, and the lever inventory
+    (including linked-mechanism state).  Fast-loop reads of these reuse the
+    last slow snapshot instead of triggering a full scan every 100 ticks.
+
+Both tiers are cleared by `invalidate_cache()` (called from `ai_core.arm()`
+on every fortress load/unload).
 
 ### Persistent state pattern
 
