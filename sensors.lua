@@ -25,23 +25,76 @@ local log    = logger.for_module('sensors')
 --   unpastured_grazers = {},     -- grazers not in any pasture zone
 --   rotting_refuse = {},         -- forbidden rotting corpses inside
 -- }
+-- Two-tier cache per the AGENTS.md "fast vs slow cadence" rule:
+--   fast_cache — refreshed on every frame change; contains ONLY the hostiles
+--                list, which the fast-loop reflexes (defense, burrow, squad
+--                alert, access_security) need sub-second freshness for.
+--   tick_cache — full snapshot (citizens, idle, distress, werebeasts,
+--                livestock, grazers, corpses, levers).  Rebuilt at most once
+--                per SLOW_CACHE_PERIOD so fast-loop sensor reads reuse the
+--                last slow snapshot instead of triggering the full scan every
+--                100 ticks (the previous behaviour — a real FPS drain on
+--                larger fortresses).
 local tick_cache = { tick = -1 }
+local fast_cache = { tick = -1, hostiles = {} }
+
+-- Full-scan refresh window: 1200 ticks = one dwarf day = the slow planner
+-- cadence (see ai_core PLANNER_PERIOD).
+local SLOW_CACHE_PERIOD = 1200
 
 -- Invalidate cache when world state changes significantly.
 -- Called by ai_core when cadences are re-armed on new fortress load.
 function invalidate_cache()
     tick_cache = { tick = -1 }
+    fast_cache = { tick = -1, hostiles = {} }
     log.debug('sensor cache invalidated')
 end
 
+-- Lightweight tier: refresh the hostile list whenever the frame counter
+-- changes.  Single pass over units.active with cheap C++ predicate calls
+-- (no per-unit pcalls).  Returns the fast cache table.
+local function ensure_fast_cache()
+    local now = -1
+    local ok, current_tick = dfhack.pcall(function() return df.global.world.frame_counter end)
+    if ok then now = current_tick end
+
+    if fast_cache.tick ~= now then
+        local hostiles = {}
+        local all_units = df.global.world.units.active
+        local U = dfhack.units
+        for i = 0, #all_units - 1 do
+            local u = all_units[i]
+            if U.isActive(u) and U.isAlive(u)
+               and U.isInvader(u) and not u.flags1.caged and not u.flags1.chained then
+                table.insert(hostiles, u)
+            end
+        end
+        -- Stamp the tick AFTER the rebuild so a mid-scan error leaves the old
+        -- tick in place and the refresh retries on the next call.
+        fast_cache.hostiles = hostiles
+        fast_cache.tick = now
+    end
+    return fast_cache
+end
+
 -- Build or refresh the tick cache. Returns the cache table.
+-- Full rebuild is gated to at most once per SLOW_CACHE_PERIOD (or after
+-- invalidation / frame-counter rollback) so the heavy scans stay on the
+-- slow cadence as the architecture mandates.
 local function ensure_cache()
     local now = -1
     local ok, current_tick = dfhack.pcall(function() return df.global.world.frame_counter end)
     if ok then now = current_tick end
 
-    if tick_cache.tick ~= now then
-        tick_cache.tick = now
+    -- Rebuild when: never built, frame-counter rollback (fresh world), or the
+    -- slow-cache window elapsed.  A failed frame read (now == -1) keeps the
+    -- last snapshot.  NOTE: tick_cache.tick is stamped AFTER the body so a
+    -- mid-rebuild error leaves the old tick in place and the rebuild retries
+    -- on the next call instead of serving a partial snapshot for a full
+    -- SLOW_CACHE_PERIOD.
+    if now > -1 and (tick_cache.tick == -1
+        or now < tick_cache.tick
+        or (now - tick_cache.tick) >= SLOW_CACHE_PERIOD) then
 
         -- Single pass: gather all unit data
         local all_units = df.global.world.units.active
@@ -69,16 +122,17 @@ local function ensure_cache()
         tick_cache.idle_dwarves = idle
         tick_cache.werebeast_citizens = werebeasts
 
-        -- Single-pass all-units filter: hostile / livestock / grazer in one loop.
+        -- Single-pass all-units filter: livestock / grazer in one loop.
+        -- (Hostiles are computed separately in ensure_fast_cache() so the
+        -- fast-loop defense reflexes get per-frame freshness without paying
+        -- for this full rebuild.)
         -- Uses if/else tree so each unit is classified exactly once.
         -- C++ vectors are 0-indexed; use numeric loop to capture element 0.
-        local hostiles, livestock, grazers = {}, {}, {}
+        local livestock, grazers = {}, {}
         for i = 0, #all_units - 1 do
             local u = all_units[i]
             if not U.isActive(u) or not U.isAlive(u) then
                 -- skip dead/inactive
-            elseif U.isInvader(u) and not u.flags1.caged and not u.flags1.chained then
-                table.insert(hostiles, u)
             elseif U.isAnimal(u) and U.isFortControlled(u) and U.isTame(u)
                and not U.isPet(u) and not U.isMarkedForSlaughter(u)
                and not u.flags1.caged and not u.flags1.chained then
@@ -102,7 +156,6 @@ local function ensure_cache()
                 end
             end
         end
-        tick_cache.hostiles = hostiles
         tick_cache.livestock = livestock
         tick_cache.unpastured_grazers = grazers
 
@@ -171,6 +224,87 @@ local function ensure_cache()
         if other.CORPSE then check_and_add(other.CORPSE) end
         if other.CORPSEPIECE then check_and_add(other.CORPSEPIECE) end
         tick_cache.rotting_refuse = rotting
+
+        -- Lever inventory (with linked-mechanism state).  Cached on the slow
+        -- cadence: levers are effectively static between builds, and this scan
+        -- walks the full TRAP building vector plus each lever's linkage graph,
+        -- so it must not run on the fast loop (defense / access_security read
+        -- this cache).
+        local levers = {}
+        local traps = df.global.world.buildings.other.TRAP
+        if traps then
+            for i = 0, #traps - 1 do
+                local b = traps[i]
+                if b and b.trap_type == df.trap_type.Lever then
+                    local name = b.name or ""
+                    local has_pull = false
+                    local b_jobs = b.jobs
+                    if b_jobs then
+                        for j = 0, #b_jobs - 1 do
+                            if b_jobs[j] and b_jobs[j].job_type == df.job_type.PullLever then
+                                has_pull = true
+                                break
+                            end
+                        end
+                    end
+
+                    -- Determine state of linked building(s)
+                    local state = nil
+                    local links = b.linked_mechanisms
+                    if links and #links > 0 then
+                        for m_idx = 0, #links - 1 do
+                            local m = links[m_idx]
+                            local tref = dfhack.items.getGeneralRef(m, df.general_ref_type.BUILDING_HOLDER)
+                            if tref then
+                                local tg = tref:getBuilding()
+                                if tg then
+                                    local btype = tg:getType()
+                                    if btype == df.building_type.Bridge then
+                                        if tg.gate_flags.raised then
+                                            state = "closed"
+                                        elseif tg.gate_flags.raising then
+                                            state = "closing"
+                                        elseif tg.gate_flags.lowering then
+                                            state = "opening"
+                                        else
+                                            state = "open"
+                                        end
+                                    elseif btype == df.building_type.Weapon then
+                                        if tg.gate_flags.retracted then
+                                            state = "closed"
+                                        else
+                                            state = "open"
+                                        end
+                                    else
+                                        local gok, closed = pcall(function() return tg.gate_flags.closed end)
+                                        if gok then
+                                            if closed then
+                                                state = "closed"
+                                            elseif tg.gate_flags.closing then
+                                                state = "closing"
+                                            elseif tg.gate_flags.opening then
+                                                state = "opening"
+                                            else
+                                                state = "open"
+                                            end
+                                        end
+                                    end
+                                    if state then break end
+                                end
+                            end
+                        end
+                    end
+
+                    table.insert(levers, {
+                        building = b, name = name,
+                        has_pull_job = has_pull, state = state,
+                    })
+                end
+            end
+        end
+        tick_cache.levers = levers
+
+        tick_cache.tick = now
     end
 
     return tick_cache
@@ -490,7 +624,7 @@ end
 -- Uses tick-cache for performance.
 function get_hostiles()
     return safe('get_hostiles', {}, function()
-        local cache = ensure_cache()
+        local cache = ensure_fast_cache()
         return cache.hostiles
     end)
 end
@@ -499,72 +633,8 @@ end
 -- Second return value is the ok flag.
 function get_levers()
     return safe('get_levers', {}, function()
-        local levers = {}
-        local traps = df.global.world.buildings.other.TRAP
-        for i = 0, #traps - 1 do
-            local b = traps[i]
-            if b.trap_type == df.trap_type.Lever then
-                local name = b.name or ""
-                local has_pull = false
-                local b_jobs = b.jobs
-                for j = 0, #b_jobs - 1 do
-                    if b_jobs[j].job_type == df.job_type.PullLever then
-                        has_pull = true
-                        break
-                    end
-                end
-
-                -- Determine state of linked building(s)
-                local state = nil
-                local links = b.linked_mechanisms
-                if links and #links > 0 then
-                    for m_idx = 0, #links - 1 do
-                        local m = links[m_idx]
-                        local tref = dfhack.items.getGeneralRef(m, df.general_ref_type.BUILDING_HOLDER)
-                        if tref then
-                            local tg = tref:getBuilding()
-                            if tg then
-                                local btype = tg:getType()
-                                if btype == df.building_type.Bridge then
-                                    if tg.gate_flags.raised then
-                                        state = "closed"
-                                    elseif tg.gate_flags.raising then
-                                        state = "closing"
-                                    elseif tg.gate_flags.lowering then
-                                        state = "opening"
-                                    else
-                                        state = "open"
-                                    end
-                                elseif btype == df.building_type.Weapon then
-                                    if tg.gate_flags.retracted then
-                                        state = "closed"
-                                    else
-                                        state = "open"
-                                    end
-                                else
-                                    local ok, closed = pcall(function() return tg.gate_flags.closed end)
-                                    if ok then
-                                        if closed then
-                                            state = "closed"
-                                        elseif tg.gate_flags.closing then
-                                            state = "closing"
-                                        elseif tg.gate_flags.opening then
-                                            state = "opening"
-                                        else
-                                            state = "open"
-                                        end
-                                    end
-                                end
-                                if state then break end
-                            end
-                        end
-                    end
-                end
-
-                table.insert(levers, { building = b, name = name, has_pull_job = has_pull, state = state })
-            end
-        end
-        return levers
+        local cache = ensure_cache()
+        return cache.levers or {}
     end)
 end
 

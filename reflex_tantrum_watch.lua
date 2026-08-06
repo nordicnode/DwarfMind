@@ -1,5 +1,5 @@
 -- DwarfMind reflex: early-warning tantrum detection independent of raw stress score.
--- reflex_stress catches dwarves above STRESS_THRESHOLD=5000 and assigns them
+-- reflex_stress catches dwarves above STRESS_THRESHOLD=20000 and assigns them
 -- to the spa. But a dwarf can enter a tantrum spiral from accumulated bad
 -- thoughts (e.g. witnessing death, losing a loved one, tribute demands) without
 -- ever breaching that threshold. This reflex monitors at a lower floor and

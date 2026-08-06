@@ -95,9 +95,9 @@ function run()
                         l.building.id, l.name,
                         l.building.centerx, l.building.centery, l.building.z))
 
-                    -- Actuate pull with high priority.
-                    actuators.run_script('lever', 'pull',
-                        '--id', tostring(l.building.id), '--priority')
+                    -- Actuate pull via the dedicated lever actuator (routes
+                    -- through the dry_run gate + high-priority lever script).
+                    actuators.pull_lever(l.building.id)
 
                     last_action[l.building.id] = now
                 end
