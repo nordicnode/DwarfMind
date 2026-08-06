@@ -373,7 +373,7 @@ local function write_dig_cell(x, y, z)
         dfhack.maps.enableBlockUpdates(block, true, false)
     end)
     if not ok3 then
-        log.error(('write_dig_cell pcall error @(%d,%d,%d): %s'):format(
+        log.err(('write_dig_cell pcall error @(%d,%d,%d): %s'):format(
             x, y, z, tostring(err)))
         return false
     end

@@ -1,7 +1,7 @@
 -- DwarfMind reflex: Engineering & Mechanism Buffer.
 -- Mechanisms (TRAPPARTS) are required for levers, floodgates, traction benches,
 -- and target traps. Running out stalls reflex_defense and reflex_hydrology.
--- Maintains a minimum reserve of 5 free mechanisms via ConstructMechanism orders.
+-- Maintains a minimum reserve of 5 free mechanisms via ConstructMechanisms orders.
 --@ module = true
 
 local _ENV = mkmodule('dwarfmind/reflex_trap_logistics')
@@ -39,13 +39,17 @@ local function count_free_mechanisms()
     return count
 end
 
--- Count queued ConstructMechanism manager orders.
+-- Count queued ConstructMechanisms manager orders.
+-- FIX: the df.job_type member is 'ConstructMechanisms' (plural,
+-- CONSTRUCT_TRAPPARTS).  'ConstructMechanism' does not exist, so the old
+-- queued count compared against a nil enum and always read 0, and the
+-- workorder call rejected the job name.
 local function count_queued_mechanism_orders()
     local queued = 0
     local mgr_orders = df.global.world.manager_orders
     for o = 0, #mgr_orders - 1 do
         local order = mgr_orders[o]
-        if order and order.job_type == df.job_type.ConstructMechanism then
+        if order and order.job_type == df.job_type.ConstructMechanisms then
             queued = queued + (order.amount_left or 0)
         end
     end
@@ -77,12 +81,12 @@ function run()
     local order_amount = math.min(deficit, MAX_ORDER_BATCH)
 
     log.warn(string.format(
-        'mechanism reserve low: effective=%d (floor=%d) -> queueing %d ConstructMechanism (stone)',
+        'mechanism reserve low: effective=%d (floor=%d) -> queueing %d ConstructMechanisms (stone)',
         effective, MECHANISM_FLOOR, order_amount
     ))
 
     actuators.run_script('workorder', json.encode({{
-        job               = 'ConstructMechanism',
+        job               = 'ConstructMechanisms',
         amount_total      = order_amount,
         material_category = { stone = true },
     }}))

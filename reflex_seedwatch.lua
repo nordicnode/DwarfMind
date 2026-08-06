@@ -21,14 +21,35 @@ local SAFE_THRESHOLD = 50
 local PLUMP_HELMET_TOKEN = 'MUSHROOM_HELMET_PLUMP'
 
 -- Persistent ban status helpers using dfhack.persistent
+-- Lazy pattern per ARCHITECTURE.md: never touch dfhack.persistent at module
+-- load time; these are only called from inside run().
+local PERSIST_KEY = 'dwarfmind/seedwatch_ban'
+
 local function get_persistent_ban()
-    local entry = dfhack.persistent.get('dwarfmind/seedwatch_ban')
-    return entry and entry.value == 'true'
+    local ok, entry = pcall(dfhack.persistent.get, PERSIST_KEY)
+    return ok and entry and entry.value == 'true'
 end
 
+-- FIX: previously this set entry.value in memory but never committed it, so
+-- the "ban is OURS" flag was lost on save/load and the reflex could no longer
+-- auto-lift its own ban after a reload.  It also crashed if the create-save
+-- failed (entry could be nil).  Follow the commit pattern used by
+-- reflex_stress: create the record if missing, write, then re-save to commit.
 local function set_persistent_ban(val)
-    local entry = dfhack.persistent.get('dwarfmind/seedwatch_ban') or dfhack.persistent.save({key = 'dwarfmind/seedwatch_ban'})
+    local entry = dfhack.persistent.get(PERSIST_KEY)
+    if not entry then
+        local ok
+        ok, entry = pcall(dfhack.persistent.save, {key = PERSIST_KEY})
+        if not ok or not entry then
+            log.warn('seedwatch: persistent.save failed; ban state not persisted')
+            return
+        end
+    end
     entry.value = tostring(val)
+    local commit_ok, commit_err = pcall(dfhack.persistent.save, entry)
+    if not commit_ok then
+        log.warn('seedwatch: persistent commit failed: ' .. tostring(commit_err))
+    end
 end
 
 -- Cooldown between checks.

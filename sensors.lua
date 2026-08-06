@@ -807,6 +807,14 @@ function check_hospital_supplies()
         local queued_plaster = 0
         local queued_buckets = 0
 
+        -- FIX: 'PrepareGypsumPlaster' is not a df.job_type member (plaster is an
+        -- Ashery reaction, not a manager-order job).  Resolve the enum safely so
+        -- the queued-plaster count stays 0 instead of comparing against a nil
+        -- enum (which silently worked but could not ever count an order).
+        local plaster_jt_ok, plaster_jt = pcall(function()
+            return df.job_type.PrepareGypsumPlaster
+        end)
+
         local mgr_orders = df.global.world.manager_orders
         for o = 0, #mgr_orders - 1 do
             local order = mgr_orders[o]
@@ -819,7 +827,7 @@ function check_hospital_supplies()
                 queued_soap = queued_soap + order.amount_left
             elseif jt == df.job_type.ConstructBucket then
                 queued_buckets = queued_buckets + order.amount_left
-            elseif jt == df.job_type.PrepareGypsumPlaster then
+            elseif plaster_jt_ok and jt == plaster_jt then
                 queued_plaster = queued_plaster + order.amount_left
             end
         end
