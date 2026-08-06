@@ -212,17 +212,25 @@ end
 
 ## 🧪 Testing and Quality Control
 
-Before submitting code, you must perform two validations:
+Before submitting code, you must perform three validations:
 
 1.  **Syntax Verification**:
     Ensure the code is free of syntax errors:
     ```bash
-    luac -p /absolute/path/to/modifiedfile.lua
+    for f in *.lua; do luac -p "$f" || exit 1; done
     ```
 2.  **Top-Level Require Check**:
-    Ensure the file loads cleanly without throwing exceptions during startup/require:
+    Ensure every module loads cleanly without throwing exceptions during startup/require. This is now codified as an automated test:
     ```bash
-    lua -e 'local mock = setmetatable({}, { __index = _G }); _G.mkmodule = function() return mock end; _G.reqscript = function() return {} end; loadfile("/absolute/path/to/modifiedfile.lua")()'
+    lua test/run.lua load   # runs the load-check test for all 46 modules
     ```
+3.  **Full Test Suite** (syntax check for all files + the load-check + unit tests):
+    ```bash
+    lua test/run.lua
+    ```
+    The suite is dependency-free (plain Lua 5.3+/5.4) and runs in CI via
+    `.github/workflows/lua.yml` on every push/PR. Unit tests cover the pure
+    logic in `sensors.lua` (`matches_keywords`, `calendar_day`,
+    `should_refresh_cache`) and `utils.lua` (`by_birth_asc`, `count_table`).
 
 Maintain documentation integrity. Do not strip comments or rename existing, validated API interfaces unless specifically requested. Follow the **Sense-Think-Act** architecture consistently.

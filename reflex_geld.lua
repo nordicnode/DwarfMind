@@ -10,6 +10,7 @@ local _ENV = mkmodule('dwarfmind/reflex_geld')
 local sensors   = reqscript('dwarfmind/sensors')
 local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
+local utils     = reqscript('dwarfmind/utils')
 local log       = logger.for_module('reflex_geld')
 
 -- Configuration
@@ -89,13 +90,9 @@ function run()
         local total_adults = #data.adults
         local males = data.males
 
-        -- Sort males by age descending (oldest first, i.e., birth_year ascending)
-        table.sort(males, function(a, b)
-            if a.birth_year ~= b.birth_year then
-                return a.birth_year < b.birth_year
-            end
-            return a.birth_time < b.birth_time
-        end)
+        -- Sort males by age (oldest first, i.e., birth_year ascending); the
+        -- comparator is shared via utils (also used by butcher/vermin_control).
+        table.sort(males, utils.by_birth_asc)
 
         if total_adults >= threshold then
             if #males > 0 then

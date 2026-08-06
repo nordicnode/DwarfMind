@@ -77,24 +77,30 @@ local function ensure_fast_cache()
     return fast_cache
 end
 
+-- Pure predicate: should the full cache snapshot be (re)built?
+--   last_tick == -1   → never built (or invalidated)            → rebuild
+--   now < last_tick   → frame-counter rollback (fresh world)    → rebuild
+--   now - last >= period → slow-cache window elapsed            → rebuild
+--   now < 0           → frame-counter read failed; keep the last snapshot.
+-- Extracted as a pure function so the Phase-5 gating logic is unit-testable.
+function should_refresh_cache(last_tick, now, period)
+    if now < 0 then return false end
+    return last_tick == -1 or now < last_tick or (now - last_tick) >= period
+end
+
 -- Build or refresh the tick cache. Returns the cache table.
 -- Full rebuild is gated to at most once per SLOW_CACHE_PERIOD (or after
 -- invalidation / frame-counter rollback) so the heavy scans stay on the
 -- slow cadence as the architecture mandates.
+-- NOTE: tick_cache.tick is stamped AFTER the body so a mid-rebuild error
+-- leaves the old tick in place and the rebuild retries on the next call
+-- instead of serving a partial snapshot for a full SLOW_CACHE_PERIOD.
 local function ensure_cache()
     local now = -1
     local ok, current_tick = dfhack.pcall(function() return df.global.world.frame_counter end)
     if ok then now = current_tick end
 
-    -- Rebuild when: never built, frame-counter rollback (fresh world), or the
-    -- slow-cache window elapsed.  A failed frame read (now == -1) keeps the
-    -- last snapshot.  NOTE: tick_cache.tick is stamped AFTER the body so a
-    -- mid-rebuild error leaves the old tick in place and the rebuild retries
-    -- on the next call instead of serving a partial snapshot for a full
-    -- SLOW_CACHE_PERIOD.
-    if now > -1 and (tick_cache.tick == -1
-        or now < tick_cache.tick
-        or (now - tick_cache.tick) >= SLOW_CACHE_PERIOD) then
+    if should_refresh_cache(tick_cache.tick, now, SLOW_CACHE_PERIOD) then
 
         -- Single pass: gather all unit data
         local all_units = df.global.world.units.active

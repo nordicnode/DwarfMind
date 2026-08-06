@@ -170,3 +170,18 @@ Every behavior in DwarfMind is a self-contained module. To create a new reflex:
    return _ENV
    ```
 3. Register the new reflex import at the top of [`dwarfmind/ai_core.lua`](ai_core.lua) and add a single entry to the `SLOW_REFLEXES` table (for slow-loop reflexes) or a `dfhack.pcall` block in `tick_fast()` (for fast-loop reflexes). See [ARCHITECTURE.md](ARCHITECTURE.md) for the dispatch pattern and the `reset()` contract.
+
+## 🧪 Testing
+
+DwarfMind ships a dependency-free Lua test suite (runs on plain Lua 5.3+, no DFHack needed):
+
+```bash
+lua test/run.lua              # syntax-free modules + full suite
+lua test/run.lua <filter>     # run only tests whose name contains <filter>
+```
+
+Coverage:
+- **Load check** — every module loads cleanly under a DFHack-shaped mock (the AGENTS.md top-level-require rule, catching any `df.global`/`dfhack.persistent` access at load time).
+- **Unit tests** — `sensors.matches_keywords` whole-word matching, `sensors.calendar_day` month math, the `sensors.should_refresh_cache` gate, and the shared `utils.by_birth_asc`/`count_table` helpers.
+
+CI (`.github/workflows/lua.yml`) runs `luac -p` on all files plus the full suite on every push/PR.

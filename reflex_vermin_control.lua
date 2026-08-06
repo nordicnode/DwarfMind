@@ -9,6 +9,7 @@ local _ENV = mkmodule('dwarfmind/reflex_vermin_control')
 local sensors   = reqscript('dwarfmind/sensors')
 local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
+local utils     = reqscript('dwarfmind/utils')
 local log       = logger.for_module('reflex_vermin_control')
 
 -- Configuration
@@ -73,12 +74,7 @@ function run()
 
     -- Cull males first, preserving the oldest male for breeding
     if #males > 1 then
-        table.sort(males, function(a, b)
-            if a.birth_year ~= b.birth_year then
-                return a.birth_year < b.birth_year
-            end
-            return a.birth_time < b.birth_time
-        end)
+        table.sort(males, utils.by_birth_asc)
 
         local male_excess = math.min(excess, #males - 1)
         for i = 2, male_excess + 1 do
@@ -91,12 +87,7 @@ function run()
     -- If still excess, cull females, preserving the oldest female
     local remaining_excess = excess - #to_slaughter
     if remaining_excess > 0 and #females > 1 then
-        table.sort(females, function(a, b)
-            if a.birth_year ~= b.birth_year then
-                return a.birth_year < b.birth_year
-            end
-            return a.birth_time < b.birth_time
-        end)
+        table.sort(females, utils.by_birth_asc)
 
         local female_excess = math.min(remaining_excess, #females - 1)
         for i = 2, female_excess + 1 do
