@@ -26,21 +26,10 @@ local DEFENSE_KEYWORDS = {
 }
 
 -- Returns true if `name` contains any of DEFENSE_KEYWORDS as a whole word.
+-- Shared whole-word matcher lives in sensors.matches_keywords() so the
+-- defense, access-security, and orchestrator reflexes stay consistent.
 local function is_defense_lever(name)
-    if not name or name == '' then return false end
-    local n = name:lower()
-    -- Wrap with sentinel chars so boundary checks work at string edges too.
-    local padded = ' ' .. n .. ' '
-    for _, kw in ipairs(DEFENSE_KEYWORDS) do
-        -- Match keyword flanked by any non-alphanumeric character on both sides.
-        -- %W matches any non-word char (not [a-zA-Z0-9_]); we treat underscore
-        -- as a separator, so replace _ with space in the padded string.
-        local normalized = padded:gsub('_', ' ')
-        if normalized:find('%W' .. kw .. '%W', 1) then
-            return true
-        end
-    end
-    return false
+    return sensors.matches_keywords(name, DEFENSE_KEYWORDS)
 end
 
 -- Cooldown to avoid spamming / duplicate queueing.
@@ -85,7 +74,17 @@ function run()
 
     for _, l in ipairs(levers) do
         if is_defense_lever(l.name) then
-            if l.has_pull_job then
+            -- FIX (gate-toggle flap): pulling a lever TOGGLES its linked
+            -- mechanism.  The old code pulled on every cooldown expiry without
+            -- checking state, so during a siege lasting > 1000 ticks the same
+            -- lever was pulled again and the gate/bridge was reopened mid-siege.
+            -- Only pull when the mechanism is open/opening or its state is
+            -- unknown; never re-pull a mechanism that is already sealed.
+            local state = l.state
+            if state == 'closed' or state == 'closing' then
+                log.debug(string.format('defense lever #%d (%s) already sealed (%s); not pulling',
+                    l.building.id, l.name, tostring(state)))
+            elseif l.has_pull_job then
                 log.info(string.format('defense lever #%d (%s) already has a pending pull job',
                     l.building.id, l.name))
             else

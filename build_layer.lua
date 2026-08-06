@@ -69,6 +69,12 @@ local furniture_queue   = {}      -- list of {type, x, y, z}
 local last_dig_tick     = -math.huge
 local last_place_tick   = -math.huge
 local embark_origin     = nil     -- cached {x, y, z} set on first run()
+-- Availability cache for the DFHack `build` command used by furniture
+-- placement: nil = untested, true = available, false = unavailable.
+-- FIX: DFHack 53.x ships no `build` script/plugin (verified against
+-- DFHack/scripts and the tools index), so placement must fail soft instead of
+-- emitting "script not found" errors every pass.
+local build_cmd_state   = nil
 
 -- ---------------------------------------------------------------------------
 -- Tile classification helpers  (pure logic, no game memory)
@@ -494,6 +500,12 @@ end
 -- With 9 workshop items queued, that took ~21,600 ticks (~18 dwarf days) to
 -- drain the initial workshop block.  Batching 5 items per pass cuts this to
 -- ~4 dwarf days.
+--
+-- FIX (build command): placement routes through actuators.run_script('build', ...).
+-- Modern DFHack (53.x) ships NO `build` script or plugin, so the first real
+-- placement fails; we detect that once, disable placement, and keep the queue
+-- intact instead of spamming "script not found" every pass.  If a DFHack build
+-- with a `build` tool is ever used, placement re-enables automatically.
 function place_furniture_tick()
     if not sensors.is_fort_loaded() then return end
     local now = sensors.current_tick()
@@ -503,16 +515,33 @@ function place_furniture_tick()
 
     local placed_this_pass = 0
     while placed_this_pass < PLACE_BATCH_SIZE and #furniture_queue > 0 do
-        local item = table.remove(furniture_queue, 1)
         if actuators.is_dry_run() then
+            local item = table.remove(furniture_queue, 1)
             log.info(('DRY-RUN place %s @(%d,%d,%d)'):format(
                 item.role, item.x, item.y, item.z))
+        elseif build_cmd_state == false then
+            -- Unavailability was already logged once when build_cmd_state
+            -- flipped to false; just stop trying (queue retained).
+            break
         else
+            local item = table.remove(furniture_queue, 1)
             -- Route through actuators: build item via dfhack 'build' script
-            actuators.run_script('build', item.role,
+            local ok = actuators.run_script('build', item.role,
                 tostring(item.x), tostring(item.y), tostring(item.z))
-            log.info(('place_furniture: placed %s @(%d,%d,%d)'):format(
-                item.role, item.x, item.y, item.z))
+            if ok then
+                build_cmd_state = true
+                log.info(('place_furniture: placed %s @(%d,%d,%d)'):format(
+                    item.role, item.x, item.y, item.z))
+            else
+                if build_cmd_state == nil then
+                    build_cmd_state = false
+                    log.err('build_layer: `build` command failed — no such tool in ' ..
+                            'current DFHack (53.x); furniture placement disabled. ' ..
+                            'Reset build_layer to re-enable.')
+                end
+                -- Item was consumed; do not re-queue (avoids an infinite retry
+                -- loop on a permanently unavailable command).
+            end
         end
         placed_this_pass = placed_this_pass + 1
     end
@@ -544,6 +573,7 @@ function reset()
     last_dig_tick  = -math.huge
     last_place_tick= -math.huge
     embark_origin  = nil
+    build_cmd_state= nil
     log.info('build_layer reset.')
 end
 

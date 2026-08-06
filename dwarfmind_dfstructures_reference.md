@@ -969,4 +969,24 @@ When writing reflexes, prefer safe DFHack Lua wrappers over direct raw pointer t
 
 ---
 
+## 14. Unit Stress
+
+The canonical stress value on a unit is:
+
+```lua
+unit.status.current_soul.personality.stress
+```
+
+*   **Field**: `personality.stress` (int32_t) — the current stress score.
+*   **Scale**: roughly ±100,000. DFHack's `Units::getStressCategory` cutoffs are
+    `{50000, 25000, 10000, -10000, -25000, -50000, -100000}` — i.e. "Stressed"
+    begins at **+10 000**, "Very Stressed" at +25 000, "Critical" at +50 000;
+    the neutral band is −10 000..+10 000.
+*   **Do NOT use** `unit.status.stress` or `personality.stress_level` — neither
+    field exists in df-structures (verified against DFHack's `Units.cpp`, which
+    reads `personality.stress`).
+*   In DwarfMind, always read it through `sensors.get_unit_stress(unit)`.
+
+---
+
 End of reference.

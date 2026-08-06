@@ -13,12 +13,18 @@ local log       = logger.for_module('reflex_stress')
 
 local json = require('json')
 
--- Stress threshold for sending to spa (in internal stress units).
--- Default 5000 is visible but not critical; higher values = more severe distress.
-local STRESS_THRESHOLD = 5000
+-- Stress threshold for sending to spa.  Values use DF's ±100k stress scale
+-- (DFHack Units.cpp stress_cutoffs: "Stressed" begins at +10000, "Very
+-- Stressed" at +25000).  FIX: the old 5000 sat BELOW the neutral band, so
+-- once the canonical stress field was wired up almost every dwarf would have
+-- been sent to the spa.  20000 = genuinely distressed, below the 25000
+-- "very stressed" line so we intervene before the crisis stage.
+local STRESS_THRESHOLD = 20000
 
 -- Stress level at which we consider a dwarf 'recovered' and restore them.
-local RECOVERED_THRESHOLD = 1000
+-- FIX: old 1000 sat deep in the neutral band and could trap dwarves in the
+-- spa.  0 = fully calm/neutral; any value at or below it releases the dwarf.
+local RECOVERED_THRESHOLD = 0
 
 -- Cooldown to prevent re-intervening on the same dwarf too quickly.
 local ACTION_COOLDOWN = 1200
@@ -184,7 +190,9 @@ function run()
     for unit_id, record in pairs(in_spa) do
         local u = df.unit.find(unit_id)
         if u and dfhack.units.isCitizen(u) and not dfhack.units.isDead(u) then
-            local stress = u.status.stress
+            -- FIX: canonical stress field is unit.status.current_soul.personality.stress
+            -- (see sensors.get_unit_stress).  u.status.stress does not exist.
+            local stress = sensors.get_unit_stress(u)
             if stress <= RECOVERED_THRESHOLD then
                 log.info(string.format('STRESS RECOVERY: %s stress=%d (below %d); restoring labors and removing from spa',
                     sensors.describe_unit(u), stress, RECOVERED_THRESHOLD))
