@@ -89,9 +89,12 @@ function run()
     local mandates, mand_ok = sensors.check_active_mandates()
     if mand_ok and #mandates > 0 then
         for _, m in ipairs(mandates) do
-            -- check if it is a production mandate (mode == 0 is manufacture)
-            -- and has items remaining
-            if m.mode == 0 and m.amount_remaining > 0 and m.job_type > -1 then
+            -- check if it is a production mandate (df.mandate_type.Make == 1)
+            -- and has items remaining.
+            -- FIX: mode 0 is Export (trade restriction), not manufacture — the
+            -- old check compared against the wrong enum value, so Make-mandates
+            -- were never fulfilled.
+            if m.mode == df.mandate_type.Make and m.amount_remaining > 0 and m.job_type > -1 then
                 local job_enum_name = df.job_type[m.job_type]
                 if job_enum_name then
                     -- check if we already have a manager order for this job type

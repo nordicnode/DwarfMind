@@ -182,21 +182,18 @@ function run()
             end
 
             -- 4. Silk, Wool, Plant Cloth
+            -- FIX: df.job_type has no WeaveSilk/WeaveWool members (the loom
+            -- exposes only 'WeaveCloth'; the thread material is chosen at the
+            -- workshop).  The old names made the workorder script hard-error.
+            -- We queue WeaveCloth for any cloth need; thread type is selected
+            -- by the player/dwarves at the loom from available thread stock.
             if mc.silk or mc.wool or mc.plant_cloth then
                 local silk_thread, wool_thread, plant_thread = get_usable_thread_counts()
 
-                if mc.silk and silk_thread > 0 then
-                    log.warn(string.format('Citizen %s is stuck in strange mood (needs silk cloth) and we have silk thread -> queueing WeaveSilk work orders', name))
-                    actuators.run_script('workorder', json.encode({{job = 'WeaveSilk', amount_total = 5}}))
-                    action_taken = true
-                end
-                if mc.wool and wool_thread > 0 then
-                    log.warn(string.format('Citizen %s is stuck in strange mood (needs wool cloth) and we have wool thread -> queueing WeaveWool work orders', name))
-                    actuators.run_script('workorder', json.encode({{job = 'WeaveWool', amount_total = 5}}))
-                    action_taken = true
-                end
-                if mc.plant_cloth and plant_thread > 0 then
-                    log.warn(string.format('Citizen %s is stuck in strange mood (needs plant cloth) and we have plant thread -> queueing WeaveCloth work orders', name))
+                if (mc.silk and silk_thread > 0)
+                or (mc.wool and wool_thread > 0)
+                or (mc.plant_cloth and plant_thread > 0) then
+                    log.warn(string.format('Citizen %s is stuck in strange mood (needs cloth) and we have matching thread -> queueing WeaveCloth work orders', name))
                     actuators.run_script('workorder', json.encode({{job = 'WeaveCloth', amount_total = 5}}))
                     action_taken = true
                 end

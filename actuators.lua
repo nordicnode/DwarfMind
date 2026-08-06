@@ -466,6 +466,37 @@ function pull_lever(building_id)
     end)
 end
 
+-- ─── Bookkeeper precision ─────────────────────────────────────────────────
+-- Force the chief bookkeeper's ledger precision to a target level (0..5,
+-- where 5 = exact counts on all stockpiles).  Every inventory-reading reflex
+-- depends on this: when precision drifts down, sensor counts become loose
+-- estimates.  Routes through the dry_run gate like every other write.
+-- Returns true on success (or in dry_run mode), false on failure.
+function set_bookkeeper_precision(level)
+    if level == nil then
+        log.warn('set_bookkeeper_precision called with nil level')
+        return false
+    end
+    if dry_run then
+        log.info(string.format('DRY RUN: would set bookkeeper_precision to %d', level))
+        return true
+    end
+    return safe_act('set_bookkeeper_precision', function()
+        local plotinfo = df.global.plotinfo
+        if not plotinfo then
+            log.warn('set_bookkeeper_precision: plotinfo is nil')
+            return false
+        end
+        if plotinfo.bookkeeper_precision == nil then
+            log.warn('set_bookkeeper_precision: bookkeeper_precision field not found')
+            return false
+        end
+        plotinfo.bookkeeper_precision = level
+        log.info(string.format('bookkeeper_precision forced to %d', level))
+        return true
+    end)
+end
+
 -- ─── Thought injection ────────────────────────────────────────────────────
 -- Injects a synthetic thought directly into the unit's personality thought
 -- vector (unit.status.current_soul.personality.thoughts).

@@ -35,7 +35,7 @@ local log       = logger.for_module('reflex_orchestrator')
 -- ---------------------------------------------------------------------------
 -- Constants
 -- ---------------------------------------------------------------------------
-local EVAL_COOLDOWN      = 1200   -- re-evaluate FSM every ~10 dwarf-days
+local EVAL_COOLDOWN      = 1200   -- re-evaluate FSM once per dwarf-day (slow-tick cadence)
 local PERSIST_KEY        = 'dwarfmind_orchestrator_state'
 
 -- Threat thresholds
@@ -43,12 +43,14 @@ local HOSTILE_SIEGE_THRESHOLD    = 4    -- >=4 armed hostiles = SIEGE
 local STRESS_DISTRESS_THRESHOLD  = 5    -- >=5 citizens above stress threshold = DISTRESS concern
 local FOOD_FAMINE_THRESHOLD      = 5    -- fewer than 5 food items = FAMINE
 local SEED_CRITICAL_THRESHOLD    = 3    -- fewer than 3 seed stacks = FAMINE
-local INFECTION_COUNT_THRESHOLD  = 2    -- >=2 infected units = QUARANTINE
+local INFECTION_COUNT_THRESHOLD  = 2    -- >=2 were-curse carriers = QUARANTINE
 local CITIZEN_STRESS_FLOOR       = 20000-- per-citizen stress value passed to get_stressed_citizens
 
--- Lunar quarantine: DF month 3 (Slate) and month 9 (Moonstone) are used as
--- representative "lunar risk" months when miasma / syndrome spread is high.
-local QUARANTINE_MONTHS = { [3]=true, [9]=true }
+-- NOTE: There is deliberately NO calendar/month-based QUARANTINE trigger here.
+-- The werebeast full-moon danger window (days 25-28 of the 28-day cycle) is
+-- handled per-unit by reflex_quarantine (bedroom door locking + Safety burrow
+-- fallback).  A fort-wide month-based lockout would suspend luxury/build
+-- reflexes for 2 months a year on a fabricated premise.
 
 -- FSM state identifiers
 local STATE = {
@@ -190,48 +192,17 @@ local function get_seed_count()
 end
 
 local function get_infection_count()
-    -- Count units with any active syndrome flagged as contagious.
-    -- We read raw unit syndrome data through a safe pcall.
-    local count = 0
-    local ok, err = pcall(function()
-        local world = df.global.world
-        if not world then return end
-        local units = world.units.active
-        if not units then return end
-        for i = 0, #units - 1 do
-            local u = units[i]
-            if u and u.syndromes and u.syndromes.active then
-                local sa = u.syndromes.active
-                for j = 0, #sa - 1 do
-                    local syn = sa[j]
-                    if syn and syn.type then
-                        count = count + 1
-                        break  -- count unit once
-                    end
-                end
-            end
-        end
-    end)
-    if not ok then
-        log.warn(('get_infection_count error: %s'):format(tostring(err)))
-        return 0
-    end
-    return count
-end
-
--- Returns {month=N, year=N} from current game time.
-local function get_game_time()
-    local result = {month=0, year=0}
-    local ok, err = pcall(function()
-        local cur = df.global.cur_year_tick
-        -- DF year = 403,200 ticks; each month ~33,600 ticks
-        result.month = math.floor((cur % 403200) / 33600) + 1
-        result.year  = df.global.cur_year
-    end)
-    if not ok then
-        log.warn(('get_game_time error: %s'):format(tostring(err)))
-    end
-    return result
+    -- Count citizens carrying a were-curse (u.enemy.were_race set) — the same
+    -- detection reflex_quarantine relies on.
+    --
+    -- FIX: The previous implementation counted ANY unit with ANY active
+    -- syndrome (animals included).  Nearly every unit accumulates mundane
+    -- syndromes over time, so that scan reported an infection almost always
+    -- and permanently locked the fortress into the QUARANTINE FSM state
+    -- (luxury=0.0, build=0.5) — a silent fort-wide productivity collapse.
+    local werebeasts, ok = sensors.get_werebeast_citizens()
+    if not ok then return 0 end
+    return werebeasts and #werebeasts or 0
 end
 
 -- Returns season name as string for logging.
@@ -253,7 +224,6 @@ local function arbitrate_state()
     local food       = get_food_count()
     local seeds      = get_seed_count()
     local infected   = get_infection_count()
-    local time       = get_game_time()
 
     -- SIEGE: active armed hostiles above threshold
     if hostiles >= HOSTILE_SIEGE_THRESHOLD then
@@ -261,13 +231,12 @@ local function arbitrate_state()
             ('SIEGE: %d hostiles detected'):format(hostiles)
     end
 
-    -- QUARANTINE: infection events OR lunar-cycle risk month
-    if infected >= INFECTION_COUNT_THRESHOLD
-    or QUARANTINE_MONTHS[time.month] then
-        local reason = (infected >= INFECTION_COUNT_THRESHOLD)
-            and (('%d infected units'):format(infected))
-            or  ('lunar risk month %d'):format(time.month)
-        return STATE.QUARANTINE, ('QUARANTINE: %s'):format(reason)
+    -- QUARANTINE: actual were-curse carriers present.  Month/calendar logic
+    -- is intentionally absent (see QUARANTINE note above — the 28-day
+    -- full-moon window is reflex_quarantine's responsibility).
+    if infected >= INFECTION_COUNT_THRESHOLD then
+        return STATE.QUARANTINE,
+            ('QUARANTINE: %d were-curse carriers'):format(infected)
     end
 
     -- DISTRESS / FAMINE: food shortage or too many highly-stressed citizens
@@ -380,8 +349,10 @@ local function escalate_distress()
         return
     end
     -- Priority food/seed work orders routed through manager
+    -- FIX: 'PrepareRawFoodMeal' is not a df.job_type member and the workorder
+    -- script hard-errors on unknown job names; PrepareMeal is the cook job.
     if actuators.can_queue_order() then
-        actuators.run_script('workorder', 'PrepareRawFoodMeal', '10')
+        actuators.run_script('workorder', 'PrepareMeal', '10')
     end
     if actuators.can_queue_order() then
         actuators.run_script('workorder', 'BrewDrink', '10')

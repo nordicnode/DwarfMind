@@ -32,6 +32,11 @@ local SUPPLY_MINIMUMS = {
 -- We order ProcessPlants so that raw fiber is converted to usable thread.
 -- If the fort has no spinnable plants, the order will queue but not complete;
 -- the player must ensure a farming/gathering supply of plant material.
+--
+-- Plaster note: DF exposes NO manager-order job for plaster powder
+-- ('MakePlaster' / 'PrepareGypsumPlaster' are not df.job_type members; plaster
+-- is an Ashery reaction).  The entry is kept so the deficit is still detected
+-- and reported, but the order is skipped by the df.job_type guard in run().
 local SUPPLY_ORDERS = {
     sutures  = { job = 'ProcessPlants',    quantity = 5  },
     crutches = { job = 'ConstructCrutch',  quantity = 3  },
@@ -166,23 +171,34 @@ function run()
             local last = last_order[key] or -math.huge
             if (now - last) >= ORDER_COOLDOWN then
                 local order = SUPPLY_ORDERS[key]
-                log.warn(string.format(
-                    'infirmary supply LOW: %s=%d (min %d); queueing %d x %s',
-                    key, have, minimum, order.quantity, order.job))
-
-                -- actuators.run_script is the correct framework entry-point for
-                -- work orders. It routes through the budget coordinator inside
-                -- actuators.lua and respects the dry_run flag. Returns false
-                -- when the per-tick order budget is exhausted; in that case we
-                -- do NOT advance the cooldown so the order retries next tick.
-                local queued = actuators.run_script(
-                    'workorder', order.job, tostring(order.quantity))
-                if queued then
+                -- FIX: resolve the job enum first.  Unknown names (e.g. plaster
+                -- powder, which has no manager-order job in DF) would make the
+                -- workorder script hard-error; we detect and skip them while
+                -- still advancing the cooldown so the report is not spammy.
+                if not df.job_type[order.job] then
+                    log.warn(string.format(
+                        'infirmary supply: %s=%d (min %d) but job %s has no manager-order form; skipping',
+                        key, have, minimum, order.job))
                     last_order[key] = now
                 else
                     log.warn(string.format(
-                        'workorder script call failed or budget exhausted for %s; will retry next tick',
-                        key))
+                        'infirmary supply LOW: %s=%d (min %d); queueing %d x %s',
+                        key, have, minimum, order.quantity, order.job))
+
+                    -- actuators.run_script is the correct framework entry-point for
+                    -- work orders. It routes through the budget coordinator inside
+                    -- actuators.lua and respects the dry_run flag. Returns false
+                    -- when the per-tick order budget is exhausted; in that case we
+                    -- do NOT advance the cooldown so the order retries next tick.
+                    local queued = actuators.run_script(
+                        'workorder', order.job, tostring(order.quantity))
+                    if queued then
+                        last_order[key] = now
+                    else
+                        log.warn(string.format(
+                            'workorder script call failed or budget exhausted for %s; will retry next tick',
+                            key))
+                    end
                 end
             else
                 log.debug(string.format(

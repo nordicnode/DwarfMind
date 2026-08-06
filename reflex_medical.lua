@@ -1,7 +1,10 @@
 -- DwarfMind reflex: hospital/medical supplies & noble monitoring.
 -- Monitors hospital supply stock buffers and Chief Medical Dwarf office.
--- Queues ConstructSplint, ConstructCrutch, MakeSoap, PrepareGypsumPlaster, and ConstructBucket
+-- Queues ConstructSplint, ConstructCrutch, MakeSoap, and ConstructBucket
 -- work orders via actuators when levels drop below thresholds.
+-- NOTE: plaster powder has no manager-order job in DF ('PrepareGypsumPlaster'
+-- is not a df.job_type member); its deficit is still detected and reported,
+-- but the order is skipped by the df.job_type guard in check_and_queue().
 --@ module = true
 
 local _ENV = mkmodule('dwarfmind/reflex_medical')
@@ -43,6 +46,18 @@ function run()
     local function check_and_queue(name, count, queued, job_type)
         local total = count + queued
         local deficit = BUFFER_TARGET - total
+        if deficit <= 0 then return false end
+        -- FIX: DF has no manager-order job for plaster powder ('PrepareGypsumPlaster'
+        -- is not a df.job_type member — plaster is produced by an Ashery reaction
+        -- the workorder script cannot queue).  Resolving the enum up front prevents
+        -- the workorder script from hard-erroring on an unknown job name.  This is
+        -- checked AFTER the deficit test so healthy stock never logs a warning.
+        if not df.job_type[job_type] then
+            log.warn(string.format(
+                'hospital supplies: %s has no manager-order job (%s); skipping order',
+                name, job_type))
+            return false
+        end
         if deficit > 0 then
             log.warn(string.format('hospital supplies: %s low (stock=%d, queued=%d) -> queueing %d more',
                 name, count, queued, deficit))

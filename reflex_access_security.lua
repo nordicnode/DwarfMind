@@ -14,23 +14,23 @@ local log       = logger.for_module('reflex_access_security')
 
 -- Keywords to identify security/defense levers (lowercase)
 local SECURITY_KEYWORDS = {
-    gate = true,
-    bridge = true,
-    entrance = true,
-    panic = true,
-    defense = true,
-    security = true,
+    'gate', 'bridge', 'entrance', 'panic', 'defense', 'security',
 }
 
 -- Cooldown to avoid duplicate pulling of levers (1000 ticks = ~20 seconds)
 local ACTION_COOLDOWN = 1000
 local last_action = {} -- [lever_id] = tick
 
+-- FIX: the previous matcher used a plain substring find, so a lever nicknamed
+-- e.g. "floodgate" or "delegate" matched the keyword "gate" and got pulled
+-- during peacetime caravan handling — the same false-positive class already
+-- fixed in reflex_defense.  Require the keyword to be a whole word, treating
+-- spaces/underscores/hyphens as separators.
 local function is_security_lever(name)
     if not name or name == '' then return false end
-    local n = name:lower()
-    for kw in pairs(SECURITY_KEYWORDS) do
-        if n:find(kw, 1, true) then
+    local padded = ' ' .. name:lower():gsub('[_%-]', ' ') .. ' '
+    for _, kw in ipairs(SECURITY_KEYWORDS) do
+        if padded:find('%W' .. kw .. '%W', 1) then
             return true
         end
     end

@@ -55,18 +55,10 @@ function run()
         current_precision, MAX_PRECISION
     ))
 
-    -- Direct write through actuators dry_run guard.
-    -- actuators.set_bookkeeper_precision is the preferred routing path;
-    -- if it does not exist in the current actuators version we fall back
-    -- to a raw write (both paths are guarded by the is_fort_loaded() check above).
-    if actuators.set_bookkeeper_precision then
-        actuators.set_bookkeeper_precision(MAX_PRECISION)
-    else
-        -- Raw structural write — safe here because we are inside run(),
-        -- never at top-level scope (Rule A), and nil-guard passed above.
-        plotinfo.bookkeeper_precision = MAX_PRECISION
-        log.warn('wrote bookkeeper_precision directly (actuators.set_bookkeeper_precision not available)')
-    end
+    -- Route the write through the actuators dry_run gate.
+    -- FIX: the raw fallback was removed — it bypassed the dry_run guard, so
+    -- in testing mode this reflex still mutated game state every slow tick.
+    actuators.set_bookkeeper_precision(MAX_PRECISION)
 
     last_action = now
 end

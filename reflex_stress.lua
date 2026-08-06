@@ -164,6 +164,21 @@ function run()
 
     local spa_id = sensors.find_burrow_id_by_name('Respite')
 
+    -- FIX: dfhack.burrows.isAssignedUnit() requires a df.burrow OBJECT, not a
+    -- burrow ID.  Passing the raw ID (a number) raised a binding error every
+    -- slow tick for spa-assigned dwarves, killing the recovery monitor.  Resolve
+    -- the burrow object once here, mirroring sensors.get_stressed_citizens().
+    local spa_burrow = nil
+    if spa_id then
+        local burrows = df.global.plotinfo.burrows.list
+        for b = 0, #burrows - 1 do
+            if burrows[b].id == spa_id then
+                spa_burrow = burrows[b]
+                break
+            end
+        end
+    end
+
     -- 1. Check recovery for currently quarantined units directly from the tracking list
     local pruned = false
     for unit_id, record in pairs(in_spa) do
@@ -187,8 +202,8 @@ function run()
                 --    They will wander and satisfy needs freely within the Safety burrow boundary.
                 -- 2. Restoring the Respite burrow assignment occurs on the next tick_slow() cycle,
                 --    leaving a short latency window where they are only restricted by their labors.
-                if spa_id then
-                    local is_in_spa_burrow = dfhack.burrows.isAssignedUnit(spa_id, u)
+                if spa_burrow then
+                    local is_in_spa_burrow = dfhack.burrows.isAssignedUnit(spa_burrow, u)
                     if alert_active then
                         -- Temporarily suspend Respite burrow restriction during civilian alert
                         if is_in_spa_burrow then

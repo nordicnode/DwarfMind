@@ -1,7 +1,7 @@
 -- DwarfMind reflex: Agricultural Yield Enhancer / Potash chain coordinator.
 -- Extends reflex_farming and reflex_soap_chain industrial pipelines.
 -- Ensures farm plots are fertilizable by maintaining Potash stocks.
--- Dependency chain:  Wood logs -> MakeAsh -> MakePotash (at Ashery).
+-- Dependency chain:  Wood logs -> MakeAsh -> MakePotashFromAsh (at Ashery).
 -- Coordinates with reflex_soap_chain for shared Ash and Wood resources.
 --@ module = true
 
@@ -107,8 +107,12 @@ function run()
     end
 
     -- 1. Count potash stock using exact material-token matching.
+    -- FIX: the manager-order job for making potash from ash is
+    -- 'MakePotashFromAsh' (MAKE_POTASH_DIRECT).  'MakePotash' is not a
+    -- df.job_type member — the workorder script rejects it and the queued
+    -- count silently compared against a nil enum.
     local current_potash = count_actual_potash()
-    local queued_potash  = count_queued_orders('MakePotash')
+    local queued_potash  = count_queued_orders('MakePotashFromAsh')
     local potash_supply  = current_potash + queued_potash
 
     log.info(string.format(
@@ -145,13 +149,13 @@ function run()
     local ash_available_for_potash = math.max(0, ash_supply - ASH_FLOOR)
 
     if ash_available_for_potash >= potash_deficit then
-        -- Ash is sufficient; queue MakePotash at Ashery.
+        -- Ash is sufficient; queue MakePotashFromAsh at the Ashery.
         log.warn(string.format(
-            'ash available (%d spare) -> queueing %d MakePotash',
+            'ash available (%d spare) -> queueing %d MakePotashFromAsh',
             ash_available_for_potash, potash_deficit
         ))
         actuators.run_script('workorder', json.encode({{
-            job          = 'MakePotash',
+            job          = 'MakePotashFromAsh',
             amount_total = potash_deficit,
         }}))
         last_action = now

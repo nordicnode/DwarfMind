@@ -109,8 +109,9 @@ end
 `log.err` entries are life-critical (quarantine, medical, etc.);
 `log.warn` entries are non-critical (trade, woodcutter, etc.).
 
-The current `SLOW_REFLEXES` table has **33 entries** in priority order
-(life-critical first, economic/administrative last).
+The current `SLOW_REFLEXES` table dispatches **34 reflexes** in priority order
+(life-critical first, economic/administrative last), plus the unnumbered FSM
+orchestrator meta-entry that always runs first (35 rows total).
 
 ## Burrow ownership arbitration
 
@@ -202,8 +203,10 @@ end
 | [dwarfmind/reflex_bookkeeper_audit.lua](reflex_bookkeeper_audit.lua) | Forces Bookkeeper precision to maximum so all sensor inventory counts are exact. |
 | [dwarfmind/reflex_hospitality.lua](reflex_hospitality.lua) | Maintains a free goblet/mug buffer (≥10) to prevent dwarves drinking directly from barrels; prioritises stone/wood to avoid competing with military gear. |
 | [dwarfmind/reflex_melt_coordinator.lua](reflex_melt_coordinator.lua) | Counts items flagged `flags.melt` and queues the exact deficit of `MeltMetalObject` orders; uses a round-robin scan window to spread item-vector traversal cost. |
-| [dwarfmind/reflex_trap_logistics.lua](reflex_trap_logistics.lua) | Maintains a reserve of ≥5 free mechanisms (TRAPPARTS) via `ConstructMechanism` orders; stone-only to preserve wood/metal for other pipelines. |
-| [dwarfmind/reflex_potash_chain.lua](reflex_potash_chain.lua) | Fertilization chain coordinator: audits potash stock, queues `MakePotash` at the Ashery if ash is available, or burns wood logs for ash while respecting an `ASH_FLOOR` reserve for `reflex_soap_chain`. |
+| [dwarfmind/reflex_trap_logistics.lua](reflex_trap_logistics.lua) | Maintains a reserve of ≥5 free mechanisms (TRAPPARTS) via `ConstructMechanisms` orders; stone-only to preserve wood/metal for other pipelines. |
+| [dwarfmind/reflex_potash_chain.lua](reflex_potash_chain.lua) | Fertilization chain coordinator: audits potash stock, queues `MakePotashFromAsh` at the Ashery if ash is available, or burns wood logs for ash while respecting an `ASH_FLOOR` reserve for `reflex_soap_chain`. |
+| [dwarfmind/reflex_orchestrator.lua](reflex_orchestrator.lua) | Macro-goal FSM orchestrator: arbitrates `PEACE`/`SIEGE`/`DISTRESS_FAMINE`/`QUARANTINE` states and emits per-category cadence multipliers that `ai_core` enforces (dispatch gate). |
+| [dwarfmind/build_layer.lua](build_layer.lua) | Spatial planning layer: segmented round-robin terrain scanner, blueprint generator (workshop block, residential nodes, stockpile, admin hall), dig designations, and furniture placement queue. |
 
 ## Inter-module wiring
 
@@ -262,8 +265,11 @@ entry.value = encoded_string
 
 ## What is explicitly out of scope for the MVP
 
-* Direct designation writes (`block.designation[…].bits.dig = …`).
-* `df.global.world.manager_orders` mutation.
+* Direct designation writes (`block.designation[…].bits.dig = …`) — now partially
+  in scope via `build_layer.lua`, which writes dig designations behind the
+  `dry_run` gate and `pcall`-wrapped block fetches (see `build_layer.lua`).
+* `df.global.world.manager_orders` mutation — work orders are created only via
+  the DFHack `workorder` script, never by direct vector manipulation.
 * `ExclusiveCallback`-style UI keystroke driving.
 * Persistence to `dfhack-config/` — re-enable on each save load.
 

@@ -47,7 +47,9 @@ local function count_free_goblets()
         end
     end)
     if not ok then
-        log.error('count_free_goblets failed: ' .. tostring(err))
+        -- FIX: logger exposes `err`, not `error` (a nil-call here masked the
+        -- real failure inside the pcall).
+        log.err('count_free_goblets failed: ' .. tostring(err))
     end
     return count
 end
