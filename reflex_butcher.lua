@@ -9,6 +9,7 @@ local _ENV = mkmodule('dwarfmind/reflex_butcher')
 local sensors   = reqscript('dwarfmind/sensors')
 local actuators = reqscript('dwarfmind/actuators')
 local logger    = reqscript('dwarfmind/logger')
+local utils     = reqscript('dwarfmind/utils')
 local log       = logger.for_module('reflex_butcher')
 
 -- ─── Configuration ───────────────────────────────────────────────────────
@@ -43,23 +44,8 @@ local ACTION_COOLDOWN = 6000
 local last_action = {}  -- [creature_id] = tick
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────
-local function table_size(t)
-    local n = 0
-    for _ in pairs(t) do n = n + 1 end
-    return n
-end
-
--- Sort ascending by birth date (youngest first).  Culling then takes the
--- YOUNGEST animals first and preserves the oldest breeding stock, matching
--- the policy already used by reflex_geld and reflex_vermin_control.
--- FIX: the previous code selected males/females in insertion order, so the
--- animals culled were arbitrary and could include the best breeding stock.
-local function by_birth_asc(a, b)
-    if a.birth_year ~= b.birth_year then
-        return a.birth_year < b.birth_year
-    end
-    return a.birth_time < b.birth_time
-end
+-- by_birth_asc / count_table now live in the shared utils module (was
+-- duplicated here, in reflex_geld, and in reflex_vermin_control).
 
 -- ─── Reflex cycle ────────────────────────────────────────────────────────
 function run()
@@ -127,9 +113,9 @@ function run()
             local last = last_action[cid] or -math.huge
             if (now - last) >= ACTION_COOLDOWN then
                 -- Youngest-first ordering so culling preserves the oldest
-                -- breeding male and female (see by_birth_asc).
-                table.sort(adult_males, by_birth_asc)
-                table.sort(adult_females, by_birth_asc)
+                -- breeding male and female (shared comparator in utils).
+                table.sort(adult_males, utils.by_birth_asc)
+                table.sort(adult_females, utils.by_birth_asc)
 
                 local to_slaughter = {}
                 -- Keep at least 1 adult male for breeding, kill other males first
@@ -161,7 +147,7 @@ function run()
     end
 
     log.info(string.format('livestock check: %d species, %d animals, %d excess groups',
-        table_size(races), total_livestock, excess_groups_count))
+        utils.count_table(races), total_livestock, excess_groups_count))
 end
 
 -- For tests / hot reloading: clear cooldown table.

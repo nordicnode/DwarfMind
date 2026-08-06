@@ -207,6 +207,8 @@ end
 | [dwarfmind/reflex_potash_chain.lua](reflex_potash_chain.lua) | Fertilization chain coordinator: audits potash stock, queues `MakePotashFromAsh` at the Ashery if ash is available, or burns wood logs for ash while respecting an `ASH_FLOOR` reserve for `reflex_soap_chain`. |
 | [dwarfmind/reflex_orchestrator.lua](reflex_orchestrator.lua) | Macro-goal FSM orchestrator: arbitrates `PEACE`/`SIEGE`/`DISTRESS_FAMINE`/`QUARANTINE` states and emits per-category cadence multipliers that `ai_core` enforces (dispatch gate). |
 | [dwarfmind/build_layer.lua](build_layer.lua) | Spatial planning layer: segmented round-robin terrain scanner, blueprint generator (workshop block, residential nodes, stockpile, admin hall), dig designations, and furniture placement queue (fails soft when the DFHack `build` tool is unavailable). |
+| [dwarfmind/utils.lua](utils.lua) | Shared pure-logic helpers (no DFHack/DF access): `by_birth_asc` age comparator and `count_table`, used by the livestock-control reflexes. Unit-tested in `test/`. |
+| [dwarfmind/test/run.lua](test/run.lua) | Dependency-free Lua test runner: loads all modules under a DFHack-shaped mock (top-level require check) and runs the unit tests. Invoked by CI (`.github/workflows/lua.yml`). |
 
 ## Inter-module wiring
 
