@@ -3,13 +3,13 @@
 -- The df.global.cur_year_tick read is mocked; this regression-locks the
 -- floor-division math (DFHack's Lua 5.3 supports the `//` operator).
 
-_G.df = { global = { cur_year_tick = 0 } }
-_G.dfhack = { pcall = function(f, ...) return pcall(f, ...) end }
-
 local sensors = load_module('sensors.lua')
 
+-- Self-contained mock: set df/dfhack per call so this test file is
+-- order-independent (the load-check test nils these globals while it runs).
 local function with_tick(tick, fn)
-    _G.df.global.cur_year_tick = tick
+    _G.df = { global = { cur_year_tick = tick } }
+    _G.dfhack = { pcall = function(f, ...) return pcall(f, ...) end }
     fn()
 end
 

@@ -26,6 +26,11 @@ local MODULES = {
 
 for _, path in ipairs(MODULES) do
     it(('loads cleanly at top level: %s'):format(path), function()
+        -- Isolate: other test files may define df/dfhack mocks in _G before
+        -- these tests execute.  Nilling them here guarantees the load-check
+        -- really asserts the main-menu contract (df/dfhack nil at load time).
+        _G.df = nil
+        _G.dfhack = nil
         load_module(path)
     end)
 end
